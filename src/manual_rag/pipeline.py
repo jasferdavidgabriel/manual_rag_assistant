@@ -112,14 +112,14 @@ def ask(
 
 
 def evaluate(cfg: Config, k_max: int = 10) -> dict:
-    """Score retrieval on the labelled question set.
+    """Score retrieval on the labelled question set, in two modes.
 
-    Each record names its manual, so questions are searched within that manual
-    only, and questions for manuals that aren't indexed are skipped. Saves
-    reports/retrieval_metrics.json and a Hit@k chart.
+    within_manual: each question is searched inside its own manual (easy).
+    all_manuals:   no filter; a hit needs the right manual AND page (hard).
+                   This shows whether retrieval can tell products apart.
 
-    Returns:
-        {"metrics": {...}, "per_question": [...], "misses": [...]}
+    Questions for manuals that aren't indexed are skipped. Saves
+    reports/retrieval_metrics.json and a Hit@k chart for each mode.
     """
     retriever = build_retriever(cfg)
     indexed = set(list_sources(retriever.collection))
@@ -127,22 +127,36 @@ def evaluate(cfg: Config, k_max: int = 10) -> dict:
     if not records:
         raise RuntimeError("No eval questions match the indexed manuals.")
 
-    per_question = []
+    ks = [k for k in (1, 3, 5, 10) if k <= k_max]
+    within, across = [], []
     for rec in records:
-        hits = retriever.retrieve(rec["question"], top_k=k_max, manual=rec.get("manual"))
-        per_question.append({**rec, "retrieved_pages": [h.page for h in hits]})
+        scoped = retriever.retrieve(rec["question"], top_k=k_max, manual=rec["manual"])
+        within.append({**rec, "retrieved_pages": [h.page for h in scoped]})
 
-    metrics = compute_metrics(
-        [r["retrieved_pages"] for r in per_question],
-        [r["expected_pages"] for r in per_question],
-        ks=[k for k in (1, 3, 5, 10) if k <= k_max],
-    )
-    result = {"metrics": metrics, "per_question": per_question, "misses": find_misses(per_question)}
+        unscoped = retriever.retrieve(rec["question"], top_k=k_max)
+        across.append({
+            **rec,
+            "retrieved_pages": [(h.source, h.page) for h in unscoped],
+            "expected_pages": [(rec["manual"], p) for p in rec["expected_pages"]],
+        })
+
+    def score(rows: list[dict]) -> dict:
+        return compute_metrics(
+            [r["retrieved_pages"] for r in rows], [r["expected_pages"] for r in rows], ks=ks
+        )
+
+    result = {
+        "manuals": sorted(indexed),
+        "within_manual": {"metrics": score(within), "misses": find_misses(within), "per_question": within},
+        "all_manuals": {"metrics": score(across), "misses": find_misses(across), "per_question": across},
+    }
 
     results_dir = cfg.path("results_dir")
     results_dir.mkdir(parents=True, exist_ok=True)
     with open(results_dir / "retrieval_metrics.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
-    plot_hit_at_k(metrics, cfg.path("figures_dir") / "retrieval_hit_at_k.png")
+    figures = cfg.path("figures_dir")
+    plot_hit_at_k(result["within_manual"]["metrics"], figures / "retrieval_hit_at_k.png")
+    plot_hit_at_k(result["all_manuals"]["metrics"], figures / "retrieval_hit_at_k_all_manuals.png")
     logger.info("Saved results to %s", results_dir)
     return result

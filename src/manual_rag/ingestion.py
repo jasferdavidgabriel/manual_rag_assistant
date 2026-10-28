@@ -1,4 +1,10 @@
-"""Document extraction and structure aware chunking for instruction manuals.
+"""Document extraction and structure aware chunking for any instruction manual.
+
+Supported inputs:
+* .pdf, .epub, .xps via pymupdf4llm (text based or scanned; scanned pages are
+  OCR'd when Tesseract is installed)
+* .docx via python-docx (Word heading styles become sections)
+* .txt and .md (form feed characters, if present, mark page breaks)
 
 Every document becomes a list of {"page": int, "text": str} Markdown pages,
 and chunk_pages() turns those into chunks that carry the manual name, page,
@@ -17,8 +23,8 @@ from typing import Any, Iterable, Sequence
 
 logger = logging.getLogger(__name__)
 
-PYMUPDF_EXTENSIONS = {".pdf"}
-SUPPORTED_EXTENSIONS = set(PYMUPDF_EXTENSIONS)
+PYMUPDF_EXTENSIONS = {".pdf", ".epub", ".xps"}
+SUPPORTED_EXTENSIONS = PYMUPDF_EXTENSIONS | {".docx", ".txt", ".md"}
 
 # "1.2 Safety" or "3.1.4 Cleaning the Filter": at least two numeric levels and a
 # capitalised title, so instruction steps like "1. Press Start." are NOT headings.
@@ -276,6 +282,31 @@ def _extract_pymupdf(path: Path) -> list[dict[str, Any]]:
     return [{"page": p["metadata"]["page_number"], "text": p["text"]} for p in md_pages]
 
 
+def _extract_docx(path: Path) -> list[dict[str, Any]]:
+    """Word files have no fixed pages, so the whole document is page 1 and
+    citations rely on section and line. Heading styles become # headings."""
+    import docx  # python-docx
+
+    lines = []
+    for para in docx.Document(str(path)).paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+        style = (para.style.name or "").lower() if para.style is not None else ""
+        if style.startswith("heading") or style == "title":
+            level = "".join(ch for ch in style if ch.isdigit()) or "1"
+            lines.append(f"{'#' * int(level)} {text}")
+        else:
+            lines.append(text)
+    return [{"page": 1, "text": "\n".join(lines)}]
+
+
+def _extract_text(path: Path) -> list[dict[str, Any]]:
+    """Plain text and Markdown. Form feeds (common in exported manuals) split pages."""
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    return [{"page": i, "text": t} for i, t in enumerate(raw.split("\f"), start=1)]
+
+
 def extract_pages(path: str | Path) -> list[dict[str, Any]]:
     """Convert a manual into per-page Markdown, dispatching on file type."""
     path = Path(path)
@@ -286,6 +317,10 @@ def extract_pages(path: str | Path) -> list[dict[str, Any]]:
 
     if ext in PYMUPDF_EXTENSIONS:
         pages = _extract_pymupdf(path)
+    elif ext == ".docx":
+        pages = _extract_docx(path)
+    elif ext in {".txt", ".md"}:
+        pages = _extract_text(path)
     else:
         raise ValueError(f"Unsupported file type {ext}. Supported: {sorted(SUPPORTED_EXTENSIONS)}")
 

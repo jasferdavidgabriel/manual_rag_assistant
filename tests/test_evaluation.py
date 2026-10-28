@@ -31,3 +31,10 @@ def test_find_misses():
     ]
     misses = find_misses(per_question, k=3)
     assert [(m["question"], m["rank"]) for m in misses] == [("b", 4), ("c", None)]
+
+
+def test_cross_manual_hits_need_the_right_manual():
+    # Searching all manuals: page 9 of the wrong manual must not count.
+    retrieved = [[("ge.pdf", 9), ("coffee.pdf", 9)]]
+    expected = [[("coffee.pdf", 9)]]
+    assert compute_metrics(retrieved, expected, ks=(1, 3)) == {"hit@1": 0.0, "hit@3": 1.0, "mrr": 0.5, "n": 1}

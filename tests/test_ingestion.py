@@ -1,10 +1,17 @@
-"""Unit tests for chunking. No PDF libraries needed."""
+"""Unit tests for extraction and chunking. No PDF libraries needed."""
+
+import tempfile
+from pathlib import Path
+
+import pytest
 
 from manual_rag.ingestion import (
     Chunk,
     chunk_pages,
     clean_line,
     clean_section_title,
+    discover_documents,
+    extract_pages,
     find_boilerplate,
     is_header,
     is_page_number,
@@ -148,3 +155,47 @@ def test_page_number_detection():
 def test_boilerplate_needs_enough_pages():
     pages = [{"page": 1, "text": "Footer"}, {"page": 2, "text": "Footer"}]
     assert find_boilerplate(pages) == set()
+
+
+# --- Phase 8: more formats and folders ------------------------------------- #
+def test_text_manual_splits_pages_on_form_feed():
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "router.txt"
+        f.write_text("# Setup\nPlug in the router and wait.\f# Reset\nHold the reset button for 10 seconds.")
+        pages = extract_pages(f)
+        assert [p["page"] for p in pages] == [1, 2]
+        chunks = chunk_pages(pages, source=f.name)
+        assert (chunks[1].section, chunks[1].page) == ("Reset", 2)
+
+
+def test_docx_headings_become_sections():
+    docx = pytest.importorskip("docx")  # skipped if python-docx isn't installed
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "kettle.docx"
+        doc = docx.Document()
+        doc.add_heading("Descaling", level=1)
+        doc.add_paragraph("Fill the kettle with equal parts vinegar and water.")
+        doc.add_heading("Warranty", level=2)
+        doc.add_paragraph("This kettle is covered for two years from purchase.")
+        doc.save(f)
+        chunks = chunk_pages(extract_pages(f), source=f.name)
+        assert [c.section for c in chunks] == ["Descaling", "Warranty"]
+        assert "vinegar" in chunks[0].content
+
+
+def test_unsupported_file_type_rejected():
+    with tempfile.TemporaryDirectory() as d:
+        bad = Path(d) / "manual.xyz"
+        bad.write_text("hello")
+        with pytest.raises(ValueError):
+            extract_pages(bad)
+
+
+def test_discover_documents_finds_supported_files_recursively():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "kitchen").mkdir()
+        for name in ["a.pdf", "kitchen/b.docx", "c.txt", "notes.xyz", ".hidden.pdf", ".gitkeep"]:
+            (root / name).write_text("x")
+        names = sorted(p.name for p in discover_documents(root))
+        assert names == ["a.pdf", "b.docx", "c.txt"]

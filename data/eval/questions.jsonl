@@ -1,22 +1,34 @@
-{"manual": "734301.pdf", "id": 1, "question": "One of the lights below the microwave is not working. How do I replace it?", "expected_pages": [17], "topic": "maintenance"}
-{"manual": "734301.pdf", "id": 2, "question": "What type of bulb does the cooktop night light use?", "expected_pages": [17], "topic": "maintenance"}
-{"manual": "734301.pdf", "id": 3, "question": "How do I remove and clean the metal grease filters?", "expected_pages": [17], "topic": "maintenance"}
-{"manual": "734301.pdf", "id": 4, "question": "How often should the charcoal filter be changed and can I wash it?", "expected_pages": [18], "topic": "maintenance"}
-{"manual": "734301.pdf", "id": 5, "question": "My microwave will not start at all. What should I check?", "expected_pages": [19], "topic": "troubleshooting"}
-{"manual": "734301.pdf", "id": 6, "question": "The display shows LOCKED. How do I unlock the controls?", "expected_pages": [13, 19], "topic": "troubleshooting"}
-{"manual": "734301.pdf", "id": 7, "question": "Why did the vent fan turn on by itself and why can't I turn it off?", "expected_pages": [14, 19], "topic": "troubleshooting"}
-{"manual": "734301.pdf", "id": 8, "question": "Is it normal to hear a dull thumping sound while the oven runs?", "expected_pages": [10, 20], "topic": "troubleshooting"}
-{"manual": "734301.pdf", "id": 9, "question": "How do I defrost chicken by weight?", "expected_pages": [10], "topic": "operation"}
-{"manual": "734301.pdf", "id": 10, "question": "How do I enter 1 pound 4 ounces for weight defrost?", "expected_pages": [10], "topic": "operation"}
-{"manual": "734301.pdf", "id": 11, "question": "Which power level should I use for slow cooking a stew?", "expected_pages": [9], "topic": "operation"}
-{"manual": "734301.pdf", "id": 12, "question": "How can I cook at one power level and then automatically switch to another?", "expected_pages": [9], "topic": "operation"}
-{"manual": "734301.pdf", "id": 13, "question": "How long should I defrost one pound of ground meat?", "expected_pages": [11], "topic": "operation"}
-{"manual": "734301.pdf", "id": 14, "question": "How do I reheat a slice of pizza using the presets?", "expected_pages": [12], "topic": "operation"}
-{"manual": "734301.pdf", "id": 15, "question": "What size popcorn bags does the popcorn button support?", "expected_pages": [12], "topic": "operation"}
-{"manual": "734301.pdf", "id": 16, "question": "How do I switch the clock to 24 hour time?", "expected_pages": [13], "topic": "operation"}
-{"manual": "734301.pdf", "id": 17, "question": "What causes sparks inside the microwave?", "expected_pages": [15], "topic": "safety"}
-{"manual": "734301.pdf", "id": 18, "question": "Why can water suddenly boil over after heating it in the microwave?", "expected_pages": [5], "topic": "safety"}
-{"manual": "734301.pdf", "id": 19, "question": "Can I use an extension cord or a two prong outlet with this microwave?", "expected_pages": [6], "topic": "safety"}
-{"manual": "734301.pdf", "id": 20, "question": "What does the warranty cover and for how long?", "expected_pages": [21], "topic": "support"}
-{"manual": "734301.pdf", "id": 21, "question": "Which filler panel kit do I need for a stainless finish?", "expected_pages": [22], "topic": "support"}
-{"manual": "734301.pdf", "id": 22, "question": "What cleaner should I use on the stainless steel door panel?", "expected_pages": [16], "topic": "maintenance"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 1, "question": "One of the lights below the microwave is not working. How do I replace it?", "expected_pages": [17], "topic": "maintenance"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 2, "question": "What type of bulb does the cooktop night light use?", "expected_pages": [17], "topic": "maintenance"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 3, "question": "How do I remove and clean the metal grease filters?", "expected_pages": [17], "topic": "maintenance"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 4, "question": "How often should the charcoal filter be changed and can I wash it?", "expected_pages": [18], "topic": "maintenance"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 5, "question": "My microwave will not start at all. What should I check?", "expected_pages": [19], "topic": "troubleshooting"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 6, "question": "The display shows LOCKED. How do I unlock the controls?", "expected_pages": [13, 19], "topic": "troubleshooting"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 7, "question": "Why did the vent fan turn on by itself and why can't I turn it off?", "expected_pages": [14, 19], "topic": "troubleshooting"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 8, "question": "Is it normal to hear a dull thumping sound while the oven runs?", "expected_pages": [10, 20], "topic": "troubleshooting"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 9, "question": "How do I defrost chicken by weight?", "expected_pages": [10], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 10, "question": "How do I enter 1 pound 4 ounces for weight defrost?", "expected_pages": [10], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 11, "question": "Which power level should I use for slow cooking a stew?", "expected_pages": [9], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 12, "question": "How can I cook at one power level and then automatically switch to another?", "expected_pages": [9], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 13, "question": "How long should I defrost one pound of ground meat?", "expected_pages": [11], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 14, "question": "How do I reheat a slice of pizza using the presets?", "expected_pages": [12], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 15, "question": "What size popcorn bags does the popcorn button support?", "expected_pages": [12], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 16, "question": "How do I switch the clock to 24 hour time?", "expected_pages": [13], "topic": "operation"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 17, "question": "What causes sparks inside the microwave?", "expected_pages": [15], "topic": "safety"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 18, "question": "Why can water suddenly boil over after heating it in the microwave?", "expected_pages": [5], "topic": "safety"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 19, "question": "Can I use an extension cord or a two prong outlet with this microwave?", "expected_pages": [6], "topic": "safety"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 20, "question": "What does the warranty cover and for how long?", "expected_pages": [21], "topic": "support"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 21, "question": "Which filler panel kit do I need for a stainless finish?", "expected_pages": [22], "topic": "support"}
+{"manual": "ge_microwave_jvm3160.pdf", "id": 22, "question": "What cleaner should I use on the stainless steel door panel?", "expected_pages": [16], "topic": "maintenance"}
+{"manual": "mr_coffee_nl4.pdf", "id": 23, "question": "How much ground coffee should I use to make 4 cups?", "expected_pages": [7], "topic": "operation"}
+{"manual": "mr_coffee_nl4.pdf", "id": 24, "question": "How do I clean the coffeemaker with vinegar?", "expected_pages": [8], "topic": "maintenance"}
+{"manual": "mr_coffee_nl4.pdf", "id": 25, "question": "How often do I need to descale it if my water is hard?", "expected_pages": [7], "topic": "maintenance"}
+{"manual": "mr_coffee_nl4.pdf", "id": 26, "question": "There are brown stains inside the glass carafe. How do I get them out?", "expected_pages": [8], "topic": "maintenance"}
+{"manual": "mr_coffee_nl4.pdf", "id": 27, "question": "Can the carafe go in the dishwasher?", "expected_pages": [8], "topic": "maintenance"}
+{"manual": "mr_coffee_nl4.pdf", "id": 28, "question": "What happens if I pull the pot out while coffee is still brewing?", "expected_pages": [7], "topic": "operation"}
+{"manual": "mr_coffee_nl4.pdf", "id": 29, "question": "What should I do before brewing my first pot?", "expected_pages": [6], "topic": "operation"}
+{"manual": "mr_coffee_nl4.pdf", "id": 30, "question": "Is it okay to use an extension cord with this coffee maker?", "expected_pages": [3], "topic": "safety"}
+{"manual": "mr_coffee_nl4.pdf", "id": 31, "question": "What number do I call to get the coffee maker repaired?", "expected_pages": [3, 9], "topic": "support"}
+{"manual": "mr_coffee_nl4.pdf", "id": 32, "question": "How long is the coffee maker warranty?", "expected_pages": [9], "topic": "support"}
+{"manual": "mr_coffee_nl4.pdf", "id": 33, "question": "Brewing is taking much longer than it used to. What does that mean?", "expected_pages": [7], "topic": "troubleshooting"}
+{"manual": "mr_coffee_nl4.pdf", "id": 34, "question": "What is the model number of the replacement carafe?", "expected_pages": [5], "topic": "support"}

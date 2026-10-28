@@ -127,16 +127,19 @@ def main() -> None:
             print_answer(answer, display_k, args.show_reasoning)
     elif args.command == "evaluate":
         result = pipeline.evaluate(cfg)
-        print("\n=== Retrieval metrics ===")
-        for name, value in result["metrics"].items():
-            print(f"{name:>8}: {value}")
-        print(f"\n=== Questions not answered in the top 3 ({len(result['misses'])}) ===")
-        for m in result["misses"]:
-            rank = m["rank"] if m["rank"] is not None else "not in top 10"
-            print(f"  [{rank}] {m['question']}")
-            print(f"        expected page {m['expected_pages']}, got {m['retrieved_pages'][:5]}")
-        print("\nSaved reports/retrieval_metrics.json and reports/figures/retrieval_hit_at_k.png")
-
+        print(f"Manuals indexed: {', '.join(result['manuals'])}")
+        for mode, title in (("within_manual", "Search within each question's manual"),
+                            ("all_manuals", "Search across ALL manuals (right manual + page)")):
+            block = result[mode]
+            print(f"\n=== {title} ===")
+            for name, value in block["metrics"].items():
+                print(f"{name:>8}: {value}")
+            print(f"  Not in top 3 ({len(block['misses'])}):")
+            for m in block["misses"]:
+                rank = m["rank"] if m["rank"] is not None else "not in top 10"
+                print(f"    [{rank}] {m['question']}")
+                print(f"          expected {m['expected_pages']}, got {m['retrieved_pages'][:4]}")
+        print("\nSaved reports/retrieval_metrics.json and two charts in reports/figures/")
 
 if __name__ == "__main__":
     main()
