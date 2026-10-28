@@ -26,7 +26,7 @@ retrieval:
 llm:
   base_url: https://integrate.api.nvidia.com/v1
   api_key_env: NVIDIA_API_KEY
-  model: deepseek-ai/deepseek-v4-flash
+  model: deepseek-ai/deepseek-v4.1-flash
   temperature: 0.3
   top_p: 0.95
   max_tokens: 4096
