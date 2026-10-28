@@ -1,6 +1,10 @@
 """Unit tests for prompt building and response parsing (no API calls)."""
 
-from manual_rag.generation import build_prompt, split_reasoning
+import types
+
+import pytest
+
+from manual_rag.generation import LLMClient, build_prompt, split_reasoning
 from manual_rag.retrieval import Hit
 
 
@@ -37,3 +41,62 @@ def test_split_reasoning_separate_field():
 
 def test_split_reasoning_handles_empty_content():
     assert split_reasoning(None) == ("", None)
+
+
+# --- Fallback behaviour, using a fake client (no network) ------------------ #
+class APITimeoutError(Exception):  # same name as the openai error
+    pass
+
+
+class AuthenticationError(Exception):
+    pass
+
+
+def _response(text):
+    message = types.SimpleNamespace(content=text, reasoning_content="thought about it")
+    return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message, finish_reason="stop")])
+
+
+def _client(outcomes, fallbacks=("backup-model",)):
+    """Build an LLMClient whose fake API returns or raises per model name."""
+    calls = []
+
+    def create(model, **kwargs):
+        calls.append(model)
+        result = outcomes[model]
+        if isinstance(result, Exception):
+            raise result
+        return _response(result)
+
+    client = LLMClient.__new__(LLMClient)  # skip __init__ (no openai / key needed)
+    client.cfg = {"model": "main-model", "fallback_models": list(fallbacks)}
+    client.client = types.SimpleNamespace(chat=types.SimpleNamespace(
+        completions=types.SimpleNamespace(create=create)))
+    return client, calls
+
+
+def test_primary_model_used_when_healthy():
+    client, calls = _client({"main-model": "**Answer:** ok"})
+    answer = client.generate("q", [_hit()])
+    assert answer.model == "main-model" and calls == ["main-model"]
+    assert answer.reasoning == "thought about it"
+
+
+def test_falls_back_when_primary_times_out():
+    client, calls = _client({"main-model": APITimeoutError(), "backup-model": "**Answer:** ok"})
+    answer = client.generate("q", [_hit()])
+    assert answer.model == "backup-model"
+    assert calls == ["main-model", "backup-model"]
+
+
+def test_auth_error_is_not_retried():
+    client, calls = _client({"main-model": AuthenticationError(), "backup-model": "x"})
+    with pytest.raises(AuthenticationError):
+        client.generate("q", [_hit()])
+    assert calls == ["main-model"]
+
+
+def test_all_models_failing_raises_clear_error():
+    client, _ = _client({"main-model": APITimeoutError(), "backup-model": APITimeoutError()})
+    with pytest.raises(RuntimeError, match="All models failed"):
+        client.generate("q", [_hit()])

@@ -21,6 +21,16 @@ def test_distance_converted_to_similarity():
     assert (hit.page, hit.source, hit.section) == (17, "734301.pdf", "Cooktop Light")
 
 
+def test_results_with_missing_metadata_are_skipped():
+    raw = _raw()
+    raw["ids"][0].append("stale")
+    raw["documents"][0].append(None)
+    raw["metadatas"][0].append(None)
+    raw["distances"][0].append(0.2)
+    hits = parse_query_results(raw)
+    assert len(hits) == 1 and hits[0].page == 17
+
+
 def test_empty_results():
     assert parse_query_results({"ids": [[]]}) == []
 

@@ -36,7 +36,8 @@ def print_answer(answer: Answer, limit: int, show_reasoning: bool) -> None:
     """Print the answer, optionally the reasoning trace, and the sources used."""
     if show_reasoning and answer.reasoning:
         print("\n=== Reasoning ===\n" + answer.reasoning)
-    print("\n=== Answer ===\n" + answer.answer)
+    model = f"  ({answer.model})" if answer.model else ""
+    print(f"\n=== Answer{model} ===\n" + answer.answer)
     print("\n=== Top retrieved chunks ===")
     print_hits(answer.hits, limit)
 

@@ -43,6 +43,18 @@ Question: {question}"""
 _THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 
+# Errors where trying the next model makes sense: overloaded, retired, rate
+# limited, or a server side failure. Auth errors are NOT here, because a bad
+# key fails the same way on every model. Matched by name so tests don't need openai.
+RETRYABLE_ERRORS = {
+    "APITimeoutError",
+    "APIConnectionError",
+    "NotFoundError",
+    "RateLimitError",
+    "InternalServerError",
+}
+
+
 @dataclass
 class Answer:
     """Final model output, split into the reasoning trace and the answer."""
@@ -50,6 +62,7 @@ class Answer:
     answer: str
     reasoning: str | None
     hits: list[Hit]
+    model: str = ""  # which model produced the answer
 
 
 def build_context(hits: Sequence[Hit]) -> str:
@@ -81,7 +94,11 @@ def split_reasoning(content: str | None, reasoning: str | None = None) -> tuple[
 
 
 class LLMClient:
-    """OpenAI compatible chat client (NVIDIA NIM by default)."""
+    """OpenAI compatible chat client (NVIDIA NIM by default) with fallbacks.
+
+    The primary model is tried first. If it times out, is retired, or is
+    overloaded, each model in fallback_models is tried in order.
+    """
 
     def __init__(self, cfg: dict[str, Any]) -> None:
         from openai import OpenAI
@@ -91,32 +108,58 @@ class LLMClient:
         if not api_key:
             raise EnvironmentError(f"Set {key_name} in your environment or .env file.")
         self.cfg = cfg
-        self.client = OpenAI(base_url=cfg["base_url"], api_key=api_key)
+        self.client = OpenAI(
+            base_url=cfg["base_url"],
+            api_key=api_key,
+            timeout=cfg.get("timeout", 90),
+            max_retries=cfg.get("max_retries", 0),
+        )
 
-    def generate(self, question: str, hits: Sequence[Hit]) -> Answer:
-        """Call the LLM with the retrieved context and return a parsed answer."""
-        extra_body = None
+    @property
+    def models(self) -> list[str]:
+        """Primary model followed by fallbacks, without duplicates."""
+        ordered = [self.cfg["model"], *self.cfg.get("fallback_models", [])]
+        return list(dict.fromkeys(ordered))
+
+    def _request_kwargs(self, question: str, hits: Sequence[Hit]) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "messages": [{"role": "user", "content": build_prompt(question, hits)}],
+            "temperature": self.cfg.get("temperature", 0.3),
+            "top_p": self.cfg.get("top_p", 0.95),
+            "max_tokens": self.cfg.get("max_tokens", 4096),
+        }
         if self.cfg.get("enable_thinking"):
-            extra_body = {
+            kwargs["extra_body"] = {
                 "chat_template_kwargs": {
                     "thinking": True,
                     "reasoning_effort": self.cfg.get("reasoning_effort", "high"),
                 }
             }
+        return kwargs
 
-        response = self.client.chat.completions.create(
-            model=self.cfg["model"],
-            messages=[{"role": "user", "content": build_prompt(question, hits)}],
-            temperature=self.cfg.get("temperature", 0.3),
-            top_p=self.cfg.get("top_p", 0.95),
-            max_tokens=self.cfg.get("max_tokens", 4096),
-            extra_body=extra_body,
-        )
-        choice = response.choices[0]
-        if getattr(choice, "finish_reason", None) == "length":
-            logger.warning("Answer was cut off at max_tokens. Raise llm.max_tokens in the config.")
+    def generate(self, question: str, hits: Sequence[Hit]) -> Answer:
+        """Call the LLM (with fallbacks) and return a parsed answer."""
+        kwargs = self._request_kwargs(question, hits)
+        failures: list[str] = []
 
-        message = choice.message
-        reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
-        answer, reasoning = split_reasoning(message.content, reasoning)
-        return Answer(answer=answer, reasoning=reasoning, hits=list(hits))
+        for model in self.models:
+            try:
+                response = self.client.chat.completions.create(model=model, **kwargs)
+            except Exception as exc:
+                if type(exc).__name__ not in RETRYABLE_ERRORS:
+                    raise
+                logger.warning("%s failed (%s), trying next model", model, type(exc).__name__)
+                failures.append(f"{model}: {type(exc).__name__}")
+                continue
+
+            choice = response.choices[0]
+            if getattr(choice, "finish_reason", None) == "length":
+                logger.warning("Answer was cut off at max_tokens. Raise llm.max_tokens in the config.")
+            message = choice.message
+            reasoning = getattr(message, "reasoning", None) or getattr(
+                message, "reasoning_content", None
+            )
+            answer, reasoning = split_reasoning(message.content, reasoning)
+            return Answer(answer=answer, reasoning=reasoning, hits=list(hits), model=model)
+
+        raise RuntimeError("All models failed: " + "; ".join(failures))

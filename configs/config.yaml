@@ -9,6 +9,7 @@ chunking:
   max_lines_per_chunk: 30
   min_chunk_chars: 20
   keep_languages: [en]
+  remove_boilerplate: true
 
 embedding:
   model_name: sentence-transformers/all-MiniLM-L6-v2
@@ -26,9 +27,13 @@ retrieval:
 llm:
   base_url: https://integrate.api.nvidia.com/v1
   api_key_env: NVIDIA_API_KEY
-  model: deepseek-ai/deepseek-v4.1-flash
+  model: nvidia/nemotron-3.5-lightning-30b-a3b    # reasons by default
+  fallback_models:                                # tried in order if the primary fails
+    - deepseek-ai/deepseek-v4.1-flash
+  timeout: 90                                     # seconds per model before moving on
+  max_retries: 0                                  # fallbacks replace silent retries
   temperature: 0.3
   top_p: 0.95
   max_tokens: 4096
-  enable_thinking: true
+  enable_thinking: false                          # DeepSeek specific reasoning switch
   reasoning_effort: high

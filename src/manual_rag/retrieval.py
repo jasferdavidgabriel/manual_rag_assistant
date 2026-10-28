@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from .indexing import Embedder
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +37,11 @@ def parse_query_results(results: dict[str, Any]) -> list[Hit]:
     for doc, meta, dist in zip(
         results["documents"][0], results["metadatas"][0], results["distances"][0]
     ):
+        if meta is None or doc is None:
+            # Happens when another process re-indexed while this one held a
+            # stale connection. Skip the entry instead of crashing.
+            logger.warning("Skipping a search result with missing data (stale index?)")
+            continue
         hits.append(
             Hit(
                 text=doc,
