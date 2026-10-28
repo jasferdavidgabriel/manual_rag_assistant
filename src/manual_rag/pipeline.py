@@ -1,4 +1,4 @@
-"""High level orchestration. Phase 4: ingest a library of manuals."""
+"""High level orchestration: ingest manuals and search them."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .indexing import (
     stored_hash,
 )
 from .ingestion import discover_documents, file_hash, load_and_chunk
+from .retrieval import Hit, Retriever
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +80,19 @@ def ingest(
 def manuals(cfg: Config) -> dict[str, int]:
     """List indexed manuals with their chunk counts."""
     return list_sources(_collection(cfg))
+
+
+def build_retriever(cfg: Config) -> Retriever:
+    """Create a retriever over the persisted collection."""
+    collection = _collection(cfg)
+    if collection.count() == 0:
+        raise RuntimeError("Vector store is empty. Run `python main.py ingest` first.")
+    return Retriever(collection, _embedder(cfg))
+
+
+def search(
+    cfg: Config, query: str, manual: str | None = None, retriever: Retriever | None = None
+) -> list[Hit]:
+    """Retrieve the top chunks for a query (no LLM involved)."""
+    retriever = retriever or build_retriever(cfg)
+    return retriever.retrieve(query, top_k=cfg.section("retrieval").get("top_k", 10), manual=manual)
