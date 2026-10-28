@@ -26,7 +26,16 @@ def test_prompt_numbers_chunks_in_rank_order():
 
 
 def test_prompt_has_refusal_rule():
-    assert "The manual does not cover this." in build_prompt("q", [_hit()])
+    prompt = build_prompt("q", [_hit()])
+    assert '"The manual does not cover this." and nothing else' in prompt
+
+
+def test_prompt_forbids_invented_steps():
+    # Regression: the model once added made up "remedy" steps to an answer
+    # about arcing causes because the template always showed a Steps section.
+    prompt = build_prompt("q", [_hit()])
+    assert "Never invent steps" in prompt
+    assert "only if the manual gives steps" in prompt
 
 
 def test_split_reasoning_inline_tags():
