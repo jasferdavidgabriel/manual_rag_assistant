@@ -1,12 +1,14 @@
-"""High level orchestration: ingest manuals, search them, and answer questions."""
+"""High level orchestration: ingest, search, answer, and evaluate."""
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
+from .evaluation import compute_metrics, find_misses, load_eval_set, plot_hit_at_k
 from .generation import Answer, LLMClient
 from .indexing import (
     Embedder,
@@ -107,3 +109,40 @@ def ask(
     if not hits:
         return Answer(answer="No matching content found. Check the manual name.", reasoning=None, hits=[])
     return LLMClient(cfg.section("llm")).generate(question, hits)
+
+
+def evaluate(cfg: Config, k_max: int = 10) -> dict:
+    """Score retrieval on the labelled question set.
+
+    Each record names its manual, so questions are searched within that manual
+    only, and questions for manuals that aren't indexed are skipped. Saves
+    reports/retrieval_metrics.json and a Hit@k chart.
+
+    Returns:
+        {"metrics": {...}, "per_question": [...], "misses": [...]}
+    """
+    retriever = build_retriever(cfg)
+    indexed = set(list_sources(retriever.collection))
+    records = [r for r in load_eval_set(cfg.path("eval_set")) if r.get("manual", "") in indexed]
+    if not records:
+        raise RuntimeError("No eval questions match the indexed manuals.")
+
+    per_question = []
+    for rec in records:
+        hits = retriever.retrieve(rec["question"], top_k=k_max, manual=rec.get("manual"))
+        per_question.append({**rec, "retrieved_pages": [h.page for h in hits]})
+
+    metrics = compute_metrics(
+        [r["retrieved_pages"] for r in per_question],
+        [r["expected_pages"] for r in per_question],
+        ks=[k for k in (1, 3, 5, 10) if k <= k_max],
+    )
+    result = {"metrics": metrics, "per_question": per_question, "misses": find_misses(per_question)}
+
+    results_dir = cfg.path("results_dir")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    with open(results_dir / "retrieval_metrics.json", "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    plot_hit_at_k(metrics, cfg.path("figures_dir") / "retrieval_hit_at_k.png")
+    logger.info("Saved results to %s", results_dir)
+    return result

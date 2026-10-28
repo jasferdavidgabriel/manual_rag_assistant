@@ -7,6 +7,7 @@ Usage:
     python main.py search "light not working"    # retrieval only, no LLM
     python main.py ask "How do I replace the cooktop light?"
     python main.py chat                          # interactive question loop
+    python main.py evaluate                      # retrieval Hit@k and MRR
 """
 
 from __future__ import annotations
@@ -69,6 +70,8 @@ def main() -> None:
     p_chat.add_argument("--manual", default=None, help="Search within one manual (file name).")
     p_chat.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
 
+    sub.add_parser("evaluate", help="Score retrieval on the labelled question set.")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -122,6 +125,17 @@ def main() -> None:
                 break
             answer = pipeline.ask(cfg, question, manual=args.manual, retriever=retriever)
             print_answer(answer, display_k, args.show_reasoning)
+    elif args.command == "evaluate":
+        result = pipeline.evaluate(cfg)
+        print("\n=== Retrieval metrics ===")
+        for name, value in result["metrics"].items():
+            print(f"{name:>8}: {value}")
+        print(f"\n=== Questions not answered in the top 3 ({len(result['misses'])}) ===")
+        for m in result["misses"]:
+            rank = m["rank"] if m["rank"] is not None else "not in top 10"
+            print(f"  [{rank}] {m['question']}")
+            print(f"        expected page {m['expected_pages']}, got {m['retrieved_pages'][:5]}")
+        print("\nSaved reports/retrieval_metrics.json and reports/figures/retrieval_hit_at_k.png")
 
 
 if __name__ == "__main__":
