@@ -1,4 +1,4 @@
-"""High level orchestration: ingest manuals and search them."""
+"""High level orchestration: ingest manuals, search them, and answer questions."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
+from .generation import Answer, LLMClient
 from .indexing import (
     Embedder,
     delete_source,
@@ -96,3 +97,13 @@ def search(
     """Retrieve the top chunks for a query (no LLM involved)."""
     retriever = retriever or build_retriever(cfg)
     return retriever.retrieve(query, top_k=cfg.section("retrieval").get("top_k", 10), manual=manual)
+
+
+def ask(
+    cfg: Config, question: str, manual: str | None = None, retriever: Retriever | None = None
+) -> Answer:
+    """Retrieve context for a question and generate a cited answer."""
+    hits = search(cfg, question, manual=manual, retriever=retriever)
+    if not hits:
+        return Answer(answer="No matching content found. Check the manual name.", reasoning=None, hits=[])
+    return LLMClient(cfg.section("llm")).generate(question, hits)

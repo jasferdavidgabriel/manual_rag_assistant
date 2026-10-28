@@ -5,6 +5,8 @@ Usage:
     python main.py ingest --path my_manual.pdf   # index one file
     python main.py list                          # show indexed manuals
     python main.py search "light not working"    # retrieval only, no LLM
+    python main.py ask "How do I replace the cooktop light?"
+    python main.py chat                          # interactive question loop
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from manual_rag import pipeline  # noqa: E402
 from manual_rag.config import load_config  # noqa: E402
+from manual_rag.generation import Answer  # noqa: E402
 from manual_rag.retrieval import Hit  # noqa: E402
 
 
@@ -27,6 +30,15 @@ def print_hits(hits: list[Hit], limit: int) -> None:
     for i, h in enumerate(hits[:limit], start=1):
         lines = f"{h.start_line}-{h.end_line}"
         print(f"{i:<3}{h.source[:22]:<24}{h.page:<6}{lines:<10}{h.similarity:<7.3f}{h.section[:40]}")
+
+
+def print_answer(answer: Answer, limit: int, show_reasoning: bool) -> None:
+    """Print the answer, optionally the reasoning trace, and the sources used."""
+    if show_reasoning and answer.reasoning:
+        print("\n=== Reasoning ===\n" + answer.reasoning)
+    print("\n=== Answer ===\n" + answer.answer)
+    print("\n=== Top retrieved chunks ===")
+    print_hits(answer.hits, limit)
 
 
 def main() -> None:
@@ -47,6 +59,15 @@ def main() -> None:
     p_search.add_argument("--manual", default=None, help="Search within one manual (file name).")
     p_search.add_argument("--show-text", action="store_true", help="Print each chunk's text.")
 
+    p_ask = sub.add_parser("ask", help="Ask one question and get a cited answer.")
+    p_ask.add_argument("question")
+    p_ask.add_argument("--manual", default=None, help="Search within one manual (file name).")
+    p_ask.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
+
+    p_chat = sub.add_parser("chat", help="Interactive question loop.")
+    p_chat.add_argument("--manual", default=None, help="Search within one manual (file name).")
+    p_chat.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -54,7 +75,15 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    try:  # load NVIDIA_API_KEY from a local .env file if python-dotenv is installed
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
     cfg = load_config(args.config)
+    display_k = cfg.section("retrieval").get("display_k", 5)
 
     if args.command == "ingest":
         report = pipeline.ingest(cfg, args.path, reset=args.reset, force=args.force)
@@ -73,10 +102,25 @@ def main() -> None:
             print(f"{n:>6} chunks  {name}")
     elif args.command == "search":
         hits = pipeline.search(cfg, args.query, manual=args.manual)
-        print_hits(hits, cfg.section("retrieval").get("display_k", 5))
+        print_hits(hits, display_k)
         if args.show_text:
             for i, h in enumerate(hits[:3], start=1):
                 print(f"\n--- #{i}  page {h.page}  {h.section} ---\n{h.text}")
+    elif args.command == "ask":
+        answer = pipeline.ask(cfg, args.question, manual=args.manual)
+        print_answer(answer, display_k, args.show_reasoning)
+    elif args.command == "chat":
+        retriever = pipeline.build_retriever(cfg)
+        print("Ask about your manuals (empty line or Ctrl+C to quit).")
+        while True:
+            try:
+                question = input("\n> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not question:
+                break
+            answer = pipeline.ask(cfg, question, manual=args.manual, retriever=retriever)
+            print_answer(answer, display_k, args.show_reasoning)
 
 
 if __name__ == "__main__":
