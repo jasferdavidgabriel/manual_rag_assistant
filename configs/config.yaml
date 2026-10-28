@@ -9,7 +9,8 @@ chunking:
   max_lines_per_chunk: 30
   min_chunk_chars: 20
   keep_languages: [en]
-  remove_boilerplate: true
+  remove_boilerplate: true                          # repeated headers, footers, page numbers
+  remove_toc: true                                  # table of contents lines ("Warranty . . . . 9")
 
 embedding:
   model_name: sentence-transformers/all-MiniLM-L6-v2

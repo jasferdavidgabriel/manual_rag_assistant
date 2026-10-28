@@ -40,6 +40,9 @@ _REPLACEMENT_CHARS = re.compile("\ufffd+")
 _EMPTY_EMPHASIS = re.compile(r"(\*\*|__)\s*(\*\*|__)")
 _BARE_LIST_MARKERS = {"-", "*", "+", "•"}
 _PAGE_NUMBER = re.compile(r"^(page\s*)?\d{1,4}(\s*(of|/)\s*\d{1,4})?$", re.IGNORECASE)
+# Table of contents entry: text, a run of dot leaders, then a page number,
+# e.g. "Warranty information . . . . . . 9" or "Controls........6".
+_TOC_LINE = re.compile(r"(?:\.\s?){4,}\s*,?\s*\d{1,4}\s*\.?$")
 
 _EN_STOPWORDS = {
     "the", "and", "to", "of", "a", "is", "in", "for", "with", "on", "your",
@@ -111,6 +114,15 @@ def _boilerplate_key(line: str) -> str:
 def is_page_number(line: str) -> bool:
     """True for bare page markers like "14", "Page 14" or "14 of 22"."""
     return bool(_PAGE_NUMBER.match(line))
+
+
+def is_toc_line(line: str) -> bool:
+    """True for table of contents entries ("Cleaning . . . . . 8").
+
+    TOC pages mention every topic in one short chunk but hold no answers,
+    so they outrank the real content pages in retrieval ("keyword magnets").
+    """
+    return bool(_TOC_LINE.search(line))
 
 
 def find_boilerplate(
@@ -197,13 +209,15 @@ def chunk_pages(
     keep_languages: Sequence[str] | None = None,
     doc_hash: str = "",
     remove_boilerplate: bool = True,
+    remove_toc: bool = True,
 ) -> list[Chunk]:
     """Split Markdown pages into section aware chunks.
 
     A new chunk starts at every heading and whenever the current chunk reaches
     max_lines_per_chunk non-empty lines. Line numbers refer to the page's
     Markdown lines. Sections carry across page breaks. Repeated headers,
-    footers and page numbers are skipped when remove_boilerplate is True.
+    footers and page numbers are skipped when remove_boilerplate is True,
+    and table of contents entries when remove_toc is True.
     """
     pages = list(pages)
     boilerplate = find_boilerplate(pages) if remove_boilerplate else set()
@@ -235,6 +249,8 @@ def chunk_pages(
             line_number += 1
             line = clean_line(raw_line)
             if not line or is_page_number(line) or _boilerplate_key(line) in boilerplate:
+                continue
+            if remove_toc and is_toc_line(line):
                 continue
 
             if is_header(line):
@@ -355,6 +371,7 @@ def load_and_chunk(path: str | Path, chunk_cfg: dict[str, Any]) -> list[Chunk]:
         keep_languages=chunk_cfg.get("keep_languages"),
         doc_hash=file_hash(path),
         remove_boilerplate=chunk_cfg.get("remove_boilerplate", True),
+        remove_toc=chunk_cfg.get("remove_toc", True),
     )
     logger.info("%s: %d chunks", path.name, len(chunks))
     return chunks

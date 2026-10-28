@@ -15,6 +15,7 @@ from manual_rag.ingestion import (
     find_boilerplate,
     is_header,
     is_page_number,
+    is_toc_line,
     keep_chunk_language,
 )
 
@@ -199,3 +200,37 @@ def test_discover_documents_finds_supported_files_recursively():
             (root / name).write_text("x")
         names = sorted(p.name for p in discover_documents(root))
         assert names == ["a.pdf", "b.docx", "c.txt"]
+
+
+# --- Table of contents removal --------------------------------------------- #
+def test_toc_line_detection():
+    # Real lines from the Mr. Coffee and GE manuals
+    for line in (
+        "Warranty information . . . . . . . . . . . . . . . . . . 9 .",
+        "Cleaning Instructions . . . . . . . . . . . . . . . . . . , 8",
+        "lntroduction............................................... 4",
+        "**SAFETY INFORMATION** . . . . . . . . . .3",
+    ):
+        assert is_toc_line(line), line
+    for line in (
+        "1. Press Cook Time.",
+        "Let solution stand in decanter for about 20 minutes. Discard..",
+        "Wait... then press Start 2",
+        "Soft Water Every 80 Brew Cycles",
+    ):
+        assert not is_toc_line(line), line
+
+
+def test_toc_lines_dropped_but_intro_kept():
+    page = {"page": 4, "text": (
+        "# INTRODUCTION\n"
+        "This Coffeemaker is specially designed to give you the ultimate coffee brewing experience.\n"
+        "# TABLE OF CONTENTS\n"
+        "If Service Is Required . . . . . . . . . . . . . 3\n"
+        "Warranty information . . . . . . . . . . . . . . 9\n"
+    )}
+    chunks = chunk_pages([page], source="coffee.pdf")
+    text = " ".join(c.content for c in chunks)
+    assert "ultimate coffee brewing" in text
+    assert "Warranty information" not in text
+    assert chunk_pages([page], source="c.pdf", remove_toc=False)[-1].content.startswith("If Service")
