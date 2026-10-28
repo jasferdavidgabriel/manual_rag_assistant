@@ -18,7 +18,8 @@ Your job is to help users find exact instructions from their manuals.
 Rules:
 1. Answer ONLY from the Manual Context below. Do not use outside knowledge.
 2. Always cite the Manual, exact Page number, Section, and Line range where the answer was found.
-   If chunks come from different manuals, only combine them when they are clearly about the same product.
+   If chunks from MORE THAN ONE manual answer the question, give a separate answer for each manual,
+   labelled with the manual name, each with its own Location. Never merge facts from different manuals.
 3. Include a Steps section ONLY when the manual itself gives steps. Copy them as closely as possible.
    Never invent steps, tips, warnings or advice that the manual does not state.
    If the manual lists causes, conditions or facts rather than steps, put them in the Answer and leave out the Steps section.
@@ -55,6 +56,12 @@ RETRYABLE_ERRORS = {
     "RateLimitError",
     "InternalServerError",
 }
+
+
+EMPTY_ANSWER_MESSAGE = (
+    "The model used its whole token budget reasoning and returned no answer. "
+    "Try rephrasing the question, naming the product, or raising llm.max_tokens in the config."
+)
 
 
 @dataclass
@@ -162,6 +169,9 @@ class LLMClient:
                 message, "reasoning_content", None
             )
             answer, reasoning = split_reasoning(message.content, reasoning)
+            if not answer:
+                # A reasoning model can spend its whole budget thinking. Never show a blank.
+                answer = EMPTY_ANSWER_MESSAGE
             return Answer(answer=answer, reasoning=reasoning, hits=list(hits), model=model)
 
         raise RuntimeError("All models failed: " + "; ".join(failures))

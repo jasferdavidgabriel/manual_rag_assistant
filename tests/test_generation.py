@@ -4,7 +4,7 @@ import types
 
 import pytest
 
-from manual_rag.generation import LLMClient, build_prompt, split_reasoning
+from manual_rag.generation import EMPTY_ANSWER_MESSAGE, LLMClient, build_prompt, split_reasoning
 from manual_rag.retrieval import Hit
 
 
@@ -109,3 +109,17 @@ def test_all_models_failing_raises_clear_error():
     client, _ = _client({"main-model": APITimeoutError(), "backup-model": APITimeoutError()})
     with pytest.raises(RuntimeError, match="All models failed"):
         client.generate("q", [_hit()])
+
+
+def test_prompt_asks_for_separate_answers_per_manual():
+    # Regression: an ambiguous warranty question matched two manuals and the
+    # model spent its whole budget deliberating over how to combine them.
+    prompt = build_prompt("q", [_hit()])
+    assert "separate answer for each manual" in prompt
+    assert "Never merge facts from different manuals" in prompt
+
+
+def test_empty_answer_is_replaced_with_clear_message():
+    client, _ = _client({"main-model": ""})
+    answer = client.generate("q", [_hit()])
+    assert answer.answer == EMPTY_ANSWER_MESSAGE

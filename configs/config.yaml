@@ -34,6 +34,6 @@ llm:
   max_retries: 0                                  # fallbacks replace silent retries
   temperature: 0.3
   top_p: 0.95
-  max_tokens: 4096
+  max_tokens: 8192                                # reasoning models need room to think AND answer
   enable_thinking: false                          # DeepSeek specific reasoning switch
   reasoning_effort: high
