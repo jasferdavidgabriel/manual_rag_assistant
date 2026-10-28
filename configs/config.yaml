@@ -1,0 +1,34 @@
+paths:
+  documents: data/raw
+  chroma_dir: models/chroma
+  eval_set: data/eval/questions.jsonl
+  figures_dir: reports/figures
+  results_dir: reports
+
+chunking:
+  max_lines_per_chunk: 30
+  min_chunk_chars: 20
+  keep_languages: [en]
+
+embedding:
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  batch_size: 32
+  device: auto
+
+vector_store:
+  collection_name: manual_rag
+  distance: cosine
+
+retrieval:
+  top_k: 10
+  display_k: 5
+
+llm:
+  base_url: https://integrate.api.nvidia.com/v1
+  api_key_env: NVIDIA_API_KEY
+  model: deepseek-ai/deepseek-v4-flash
+  temperature: 0.3
+  top_p: 0.95
+  max_tokens: 4096
+  enable_thinking: true
+  reasoning_effort: high
