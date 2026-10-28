@@ -5,7 +5,9 @@ from manual_rag.ingestion import (
     chunk_pages,
     clean_line,
     clean_section_title,
+    find_boilerplate,
     is_header,
+    is_page_number,
     keep_chunk_language,
 )
 
@@ -114,3 +116,35 @@ def test_chunk_id_is_deterministic_and_unique():
 def test_clean_section_title():
     assert clean_section_title("###### **Cooktop Light/Nite Light**") == "Cooktop Light/Nite Light"
     assert clean_section_title("#") == "General"
+
+
+def test_broken_glyphs_and_mark_tags_removed():
+    raw = "- \ufffd\ufffd <mark>a</mark> **\ufffd** Read \ufffd\ufffd\ufffd all instructions."
+    assert clean_line(raw) == "- a Read all instructions."
+    assert clean_line("- \ufffd\ufffd\ufffd") == ""
+
+
+def test_repeated_footer_and_page_numbers_removed():
+    pages = [
+        {"page": n, "text": f"# Topic {n}\nUseful instruction number {n} for this page.\n{n}\n49-7000115 Rev. 0"}
+        for n in range(1, 7)
+    ]
+    assert find_boilerplate(pages) == {"49-7000115 rev. 0"}
+    chunks = chunk_pages(pages, source="m.pdf")
+    assert len(chunks) == 6
+    for c in chunks:
+        assert "Rev. 0" not in c.content
+        assert c.content.startswith("Useful instruction")
+        assert "\n" not in c.content  # page number line was dropped too
+
+
+def test_page_number_detection():
+    for line in ("14", "Page 14", "14 of 22", "3/10"):
+        assert is_page_number(line)
+    for line in ("1. Press Start.", "120 volt bulb", "49-7000115 Rev. 0"):
+        assert not is_page_number(line)
+
+
+def test_boilerplate_needs_enough_pages():
+    pages = [{"page": 1, "text": "Footer"}, {"page": 2, "text": "Footer"}]
+    assert find_boilerplate(pages) == set()

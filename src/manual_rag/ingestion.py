@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -27,7 +28,12 @@ _BOLD_LINE = re.compile(r"^\*\*[^*]{2,70}\*\*$")
 # Markup that pymupdf4llm adds: picture text comments, <br>, and simple style tags.
 _HTML_COMMENT = re.compile(r"<!--.*?-->")
 _HTML_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
-_HTML_TAG = re.compile(r"</?(?:u|b|i|em|strong|sup|sub|span)\b[^>]*>", re.IGNORECASE)
+_HTML_TAG = re.compile(r"</?(?:u|b|i|em|strong|sup|sub|span|mark)\b[^>]*>", re.IGNORECASE)
+# Undecodable glyphs (broken PDF fonts) and the empty formatting they leave behind.
+_REPLACEMENT_CHARS = re.compile("\ufffd+")
+_EMPTY_EMPHASIS = re.compile(r"(\*\*|__)\s*(\*\*|__)")
+_BARE_LIST_MARKERS = {"-", "*", "+", "•"}
+_PAGE_NUMBER = re.compile(r"^(page\s*)?\d{1,4}(\s*(of|/)\s*\d{1,4})?$", re.IGNORECASE)
 
 _EN_STOPWORDS = {
     "the", "and", "to", "of", "a", "is", "in", "for", "with", "on", "your",
@@ -85,7 +91,42 @@ def clean_line(line: str) -> str:
     line = _HTML_COMMENT.sub(" ", line)
     line = _HTML_BR.sub(" ", line)
     line = _HTML_TAG.sub("", line)
-    return re.sub(r"[ \t]{2,}", " ", line).strip()
+    line = _REPLACEMENT_CHARS.sub(" ", line)
+    line = _EMPTY_EMPHASIS.sub(" ", line)
+    line = re.sub(r"[ \t]{2,}", " ", line).strip()
+    return "" if line in _BARE_LIST_MARKERS else line
+
+
+def _boilerplate_key(line: str) -> str:
+    """Case insensitive key used to match repeated lines across pages."""
+    return line.lower()
+
+
+def is_page_number(line: str) -> bool:
+    """True for bare page markers like "14", "Page 14" or "14 of 22"."""
+    return bool(_PAGE_NUMBER.match(line))
+
+
+def find_boilerplate(
+    pages: Sequence[dict[str, Any]],
+    min_fraction: float = 0.5,
+    min_pages: int = 4,
+    max_len: int = 60,
+) -> set[str]:
+    """Detect running headers, footers and page numbers.
+
+    A short line that appears word for word on at least min_fraction of the
+    pages is treated as boilerplate. Page numbers are handled separately by
+    is_page_number(). Works for any manual without hardcoding its footer text.
+    """
+    texts = [p.get("text") or "" for p in pages if (p.get("text") or "").strip()]
+    if len(texts) < min_pages:
+        return set()
+    counts: Counter[str] = Counter()
+    for text in texts:
+        seen = {_boilerplate_key(ln) for ln in map(clean_line, text.split("\n")) if 0 < len(ln) <= max_len}
+        counts.update(seen)
+    return {key for key, n in counts.items() if n / len(texts) >= min_fraction}
 
 
 def is_header(line: str) -> bool:
@@ -149,13 +190,19 @@ def chunk_pages(
     min_chunk_chars: int = 20,
     keep_languages: Sequence[str] | None = None,
     doc_hash: str = "",
+    remove_boilerplate: bool = True,
 ) -> list[Chunk]:
     """Split Markdown pages into section aware chunks.
 
     A new chunk starts at every heading and whenever the current chunk reaches
     max_lines_per_chunk non-empty lines. Line numbers refer to the page's
-    Markdown lines. Sections carry across page breaks.
+    Markdown lines. Sections carry across page breaks. Repeated headers,
+    footers and page numbers are skipped when remove_boilerplate is True.
     """
+    pages = list(pages)
+    boilerplate = find_boilerplate(pages) if remove_boilerplate else set()
+    if boilerplate:
+        logger.info("%s: skipping %d repeated header/footer lines", source, len(boilerplate))
     chunks: list[Chunk] = []
     current_section = "General"
 
@@ -181,7 +228,7 @@ def chunk_pages(
         for raw_line in text.split("\n"):
             line_number += 1
             line = clean_line(raw_line)
-            if not line:
+            if not line or is_page_number(line) or _boilerplate_key(line) in boilerplate:
                 continue
 
             if is_header(line):
@@ -272,6 +319,7 @@ def load_and_chunk(path: str | Path, chunk_cfg: dict[str, Any]) -> list[Chunk]:
         min_chunk_chars=chunk_cfg.get("min_chunk_chars", 20),
         keep_languages=chunk_cfg.get("keep_languages"),
         doc_hash=file_hash(path),
+        remove_boilerplate=chunk_cfg.get("remove_boilerplate", True),
     )
     logger.info("%s: %d chunks", path.name, len(chunks))
     return chunks
