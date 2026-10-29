@@ -42,7 +42,12 @@ _BARE_LIST_MARKERS = {"-", "*", "+", "•"}
 _PAGE_NUMBER = re.compile(r"^(page\s*)?\d{1,4}(\s*(of|/)\s*\d{1,4})?$", re.IGNORECASE)
 # Table of contents entry: text, a run of dot leaders, then a page number,
 # e.g. "Warranty information . . . . . . 9" or "Controls........6".
-_TOC_LINE = re.compile(r"(?:\.\s?){4,}\s*,?\s*\d{1,4}\s*\.?$")
+_TOC_LINE = re.compile(r"(?:[.,]\s?){4,}\s*\d{1,4}\s*\.?$")  # OCR leaves stray commas in leaders
+# A long run of dot leaders anywhere. Normal prose never has 10 dots in a row,
+# so this catches TOC lines that OCR mangled ("CCcoffoffee**.**.**..").
+_DOT_LEADERS = re.compile(r"(?:\.\s?){10,}")
+# Markdown table separator row: |---|, |:---|---:|, etc.
+_TABLE_SEPARATOR = re.compile(r"^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$")
 
 _EN_STOPWORDS = {
     "the", "and", "to", "of", "a", "is", "in", "for", "with", "on", "your",
@@ -103,7 +108,9 @@ def clean_line(line: str) -> str:
     line = _REPLACEMENT_CHARS.sub(" ", line)
     line = _EMPTY_EMPHASIS.sub(" ", line)
     line = re.sub(r"[ \t]{2,}", " ", line).strip()
-    return "" if line in _BARE_LIST_MARKERS else line
+    if line in _BARE_LIST_MARKERS or _TABLE_SEPARATOR.match(line):
+        return ""
+    return line
 
 
 def _boilerplate_key(line: str) -> str:
@@ -121,8 +128,11 @@ def is_toc_line(line: str) -> bool:
 
     TOC pages mention every topic in one short chunk but hold no answers,
     so they outrank the real content pages in retrieval ("keyword magnets").
+    Handles TOCs extracted as Markdown table rows ("|Warranty . . . 9 .|")
+    and dot leaders broken up by bold markers.
     """
-    return bool(_TOC_LINE.search(line))
+    core = line.strip().strip("|").replace("*", "").strip()
+    return bool(_TOC_LINE.search(core) or _DOT_LEADERS.search(core))
 
 
 def find_boilerplate(

@@ -204,33 +204,47 @@ def test_discover_documents_finds_supported_files_recursively():
 
 # --- Table of contents removal --------------------------------------------- #
 def test_toc_line_detection():
-    # Real lines from the Mr. Coffee and GE manuals
     for line in (
         "Warranty information . . . . . . . . . . . . . . . . . . 9 .",
-        "Cleaning Instructions . . . . . . . . . . . . . . . . . . , 8",
-        "lntroduction............................................... 4",
         "**SAFETY INFORMATION** . . . . . . . . . .3",
+        # Exact lines pymupdf4llm produced for the Mr. Coffee manual in Colab:
+        # the TOC came out as a Markdown table, so every line is wrapped in pipes.
+        "|Warranty information . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9 .|",
+        "|Cleaning Instructions . . . . . . . . . . . . . . . . . . . . . . . . . . , 8|",
+        "|lntroduction............................................... 4|",
+        "|Coffee Measurement Chart . . . . . , . 7|",
+        "|CCcoffoffee**.**.**.**..**.**.**.**.**..**.**.**.**.**..**.**.**.**..**.**.**.**.. C o f f e e . . . . 6 Brewing|",
     ):
         assert is_toc_line(line), line
     for line in (
         "1. Press Cook Time.",
         "Let solution stand in decanter for about 20 minutes. Discard..",
         "Wait... then press Start 2",
-        "Soft Water Every 80 Brew Cycles",
+        "|Soft Water|Every 80 Brew Cycles|",
+        "|**TABLE OF CONTENTS PAG**|",
     ):
         assert not is_toc_line(line), line
 
 
+def test_markdown_table_separator_rows_removed():
+    for row in ("|---|", "|---|---|", "|:---|---:|", "| --- | --- |"):
+        assert clean_line(row) == "", row
+    assert clean_line("|Soft Water|Every 80 Brew Cycles|") == "|Soft Water|Every 80 Brew Cycles|"
+
+
 def test_toc_lines_dropped_but_intro_kept():
+    # Shape of the real Mr. Coffee page 4 after extraction.
     page = {"page": 4, "text": (
-        "# INTRODUCTION\n"
-        "This Coffeemaker is specially designed to give you the ultimate coffee brewing experience.\n"
-        "# TABLE OF CONTENTS\n"
-        "If Service Is Required . . . . . . . . . . . . . 3\n"
-        "Warranty information . . . . . . . . . . . . . . 9\n"
+        "###### **IN TRODUCTION**\n"
+        "**CONGRATULATIONS!** This Cbffeemaker is specialty designed to give you the ultimate coffee brewing experience.\n"
+        "|**TABLE OF CONTENTS PAG**|\n"
+        "|---|\n"
+        "|If Service Is Required . . . . . . . . . . . . . . . . . 3|\n"
+        "|Warranty information . . . . . . . . . . . . . . . . . . 9 .|\n"
     )}
     chunks = chunk_pages([page], source="coffee.pdf")
     text = " ".join(c.content for c in chunks)
     assert "ultimate coffee brewing" in text
     assert "Warranty information" not in text
-    assert chunk_pages([page], source="c.pdf", remove_toc=False)[-1].content.startswith("If Service")
+    assert "|---|" not in text
+    assert "Warranty information" in chunk_pages([page], source="c.pdf", remove_toc=False)[0].content
