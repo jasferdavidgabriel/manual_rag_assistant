@@ -48,7 +48,7 @@ _THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 DESCRIBE_PROMPT = """Below are the first pages of a product manual.
 In at most 10 words, name the product it is for: brand, model and product type.
 Reply with ONLY the product name, nothing else.
-Examples: "GE JVM3160 over-the-range microwave oven", "Mr. Coffee NL4 4-cup coffeemaker"
+Examples: "Bosch SHX878 built-in dishwasher", "Netgear R7000 Wi-Fi router"
 
 Manual excerpt:
 {excerpt}"""
