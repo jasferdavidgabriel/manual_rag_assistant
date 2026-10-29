@@ -1,15 +1,16 @@
-"""Pure helpers for the web app (no Gradio import, so they are easy to test)."""
+"""Helpers for the web app (no Gradio import, so they are easy to test)."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 from .ingestion import SUPPORTED_EXTENSIONS
 from .retrieval import Hit
 
-ALL_MANUALS = "All manuals"
+CHARS_PER_PAGE_ESTIMATE = 3000  # for files without real pages (Word, text)
 
 
 def safe_filename(name: str) -> str:
@@ -27,14 +28,49 @@ def is_supported(name: str) -> bool:
     return Path(name).suffix.lower() in SUPPORTED_EXTENSIONS
 
 
-def manual_choices(manuals: dict[str, int]) -> list[str]:
-    """Dropdown options: "All manuals" first, then each indexed manual."""
-    return [ALL_MANUALS, *manuals.keys()]
+@dataclass
+class DocInfo:
+    """Quick facts about an upload, read without OCR so the check is fast."""
+
+    pages: int
+    text_chars: int  # characters of real (selectable) text
+
+    @property
+    def chars_per_page(self) -> float:
+        return self.text_chars / max(self.pages, 1)
 
 
-def to_manual_filter(choice: str | None) -> str | None:
-    """Convert the dropdown value into the pipeline's manual filter."""
-    return None if not choice or choice == ALL_MANUALS else choice
+def inspect_document(path: str | Path) -> DocInfo:
+    """Count pages and real text. PDF/EPUB/XPS use PyMuPDF; Word and text
+    files have no fixed pages, so pages are estimated from their length."""
+    path = Path(path)
+    ext = path.suffix.lower()
+    if ext in {".pdf", ".epub", ".xps"}:
+        try:
+            import pymupdf
+        except ImportError:  # older PyMuPDF versions
+            import fitz as pymupdf
+        with pymupdf.open(str(path)) as doc:
+            chars = sum(len(page.get_text().strip()) for page in doc)
+            return DocInfo(pages=doc.page_count, text_chars=chars)
+    if ext == ".docx":
+        import docx
+
+        chars = sum(len(p.text.strip()) for p in docx.Document(str(path)).paragraphs)
+    else:
+        chars = len(path.read_text(encoding="utf-8", errors="replace").strip())
+    return DocInfo(pages=max(1, -(-chars // CHARS_PER_PAGE_ESTIMATE)), text_chars=chars)
+
+
+def validate_upload(info: DocInfo, max_pages: int = 50, min_chars_per_page: int = 200) -> str | None:
+    """Return a friendly reason to reject the upload, or None if it's fine."""
+    if info.pages > max_pages:
+        return (f"This manual has {info.pages} pages. The limit is {max_pages} pages, "
+                "so please upload a shorter manual.")
+    if info.text_chars == 0 or info.chars_per_page < min_chars_per_page:
+        return ("This file is mostly images (very little readable text). Please upload a "
+                "manual with written instructions, not a picture-only scan or diagram booklet.")
+    return None
 
 
 def format_sources(hits: Sequence[Hit], limit: int = 5, preview_chars: int = 600) -> str:
