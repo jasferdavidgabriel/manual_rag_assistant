@@ -195,6 +195,7 @@ Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect ·
 
 ## Known limitations
 
+- **Images in the PDF are not processed.** The pipeline reads text only. Diagrams, photos, exploded part views and control panel illustrations are skipped, so a step like "remove the screw shown above" loses its picture, and the assistant can't answer questions about what a figure shows (e.g. "which button is on the left?"). Two partial exceptions: scanned pages are OCR'd into text, and short text labels inside pictures are sometimes captured. Manuals made mostly of images, such as picture-only assembly guides, are rejected by the app for this reason. See the roadmap for the planned fix.
 - **Small evaluation:** 34 questions over 2 manuals, written by the author. Treat the metrics as evidence for the design choices, not as a benchmark.
 - **Part numbers and codes** ("ND4", "JX36BSS") are the weak spot of meaning-based search. This is the one remaining miss in the evaluation.
 - **Local ChromaDB** is single-machine. A process holding the index open while another re-indexes can see stale results (guarded against, not solved).
