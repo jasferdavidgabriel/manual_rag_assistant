@@ -18,8 +18,10 @@ Your job is to help users find exact instructions from their manuals.
 Rules:
 1. Answer ONLY from the Manual Context below. Do not use outside knowledge.
 2. Always cite the Manual, exact Page number, Section, and Line range where the answer was found.
-   If chunks from MORE THAN ONE manual answer the question, give a separate answer for each manual,
-   labelled with the manual name, each with its own Location. Never merge facts from different manuals.
+   The context may be split into groups, one per manual ("=== Manual N: ... ==="). If more than one
+   group answers the question, write a separate block for each, starting with "### " and that
+   manual's product name, using ONLY that group's chunks and its own Location.
+   Never mention one manual's facts inside another manual's block.
 3. Include a Steps section ONLY when the manual itself gives steps. Copy them as closely as possible.
    Never invent steps, tips, warnings or advice that the manual does not state.
    If the manual lists causes, conditions or facts rather than steps, put them in the Answer and leave out the Steps section.
@@ -93,14 +95,41 @@ class Answer:
     model: str = ""  # which model produced the answer
 
 
+def _chunk_block(i: int, h: Hit) -> str:
+    title = f" ({h.manual_title})" if h.manual_title else ""
+    return (f"[Chunk {i} | Manual: {h.source}{title} | Page: {h.page} | Section: {h.section} | "
+            f"Lines: {h.start_line}-{h.end_line}]\n{h.text}")
+
+
+def group_by_manual(hits: Sequence[Hit]) -> list[tuple[str, list[Hit]]]:
+    """Group hits by manual, keeping the order each manual first appears in
+    (so the best matching manual comes first) and the rank order inside it."""
+    groups: dict[str, list[Hit]] = {}
+    for h in hits:
+        groups.setdefault(h.source, []).append(h)
+    return list(groups.items())
+
+
 def build_context(hits: Sequence[Hit]) -> str:
-    """Format retrieved chunks with their location headers for the prompt."""
-    return "\n\n".join(
-        f"[Chunk {i} | Manual: {h.source}{f' ({h.manual_title})' if h.manual_title else ''} | "
-        f"Page: {h.page} | Section: {h.section} | "
-        f"Lines: {h.start_line}-{h.end_line}]\n{h.text}"
-        for i, h in enumerate(hits, start=1)
-    )
+    """Format retrieved chunks with their location headers for the prompt.
+
+    With one manual (the web app's case) chunks are listed as before. With
+    several, the code groups them per manual so the model never has to sort a
+    mixed pile itself, which is where it mixed up citations without reasoning.
+    """
+    groups = group_by_manual(hits)
+    if len(groups) <= 1:
+        return "\n\n".join(_chunk_block(i, h) for i, h in enumerate(hits, start=1))
+
+    parts, i = [], 1
+    for n, (source, group) in enumerate(groups, start=1):
+        title = f" ({group[0].manual_title})" if group[0].manual_title else ""
+        blocks = []
+        for h in group:
+            blocks.append(_chunk_block(i, h))
+            i += 1
+        parts.append(f"=== Manual {n}: {source}{title} ===\n\n" + "\n\n".join(blocks))
+    return "\n\n".join(parts)
 
 
 def build_prompt(question: str, hits: Sequence[Hit]) -> str:

@@ -7,7 +7,9 @@ import pytest
 from manual_rag.generation import (
     EMPTY_ANSWER_MESSAGE,
     LLMClient,
+    build_context,
     build_prompt,
+    group_by_manual,
     clean_title,
     split_reasoning,
 )
@@ -123,8 +125,8 @@ def test_prompt_asks_for_separate_answers_per_manual():
     # Regression: an ambiguous warranty question matched two manuals and the
     # model spent its whole budget deliberating over how to combine them.
     prompt = build_prompt("q", [_hit()])
-    assert "separate answer for each manual" in prompt
-    assert "Never merge facts from different manuals" in prompt
+    assert "write a separate block for each" in prompt
+    assert "Never mention one manual's facts inside another manual's block" in prompt
 
 
 def test_empty_answer_is_replaced_with_clear_message():
@@ -173,3 +175,40 @@ def test_title_prompt_examples_are_not_the_test_manuals():
     # Regression: using the indexed manuals as examples let the model copy them.
     from manual_rag.generation import DESCRIBE_PROMPT
     assert "Mr. Coffee" not in DESCRIBE_PROMPT and "JVM3160" not in DESCRIBE_PROMPT
+
+
+# --- Grouping chunks per manual -------------------------------------------- #
+def _mixed_hits():
+    ge, coffee = "ge_microwave_jvm3160.pdf", "mr_coffee_nl4.pdf"
+    return [
+        Hit("GE implied warranties text.", 21, "EXCLUSION", 33, 37, 0.41, ge, "GE JVM3160 microwave oven"),
+        Hit("GE one year warranty.", 21, "Warranty", 5, 7, 0.36, ge, "GE JVM3160 microwave oven"),
+        Hit("Sunbeam warrants for ONE year.", 9, "1-YEAR LIMITED WARRANTY", 5, 11, 0.35, coffee,
+            "Mr. Coffee NL4 4-cup coffeemaker"),
+        Hit("What GE will not cover.", 21, "Not covered", 11, 29, 0.28, ge, "GE JVM3160 microwave oven"),
+        Hit("How to obtain warranty service.", 9, "SERVICE", 15, 26, 0.27, coffee,
+            "Mr. Coffee NL4 4-cup coffeemaker"),
+    ]
+
+
+def test_group_by_manual_keeps_best_manual_first_and_rank_order():
+    groups = group_by_manual(_mixed_hits())
+    assert [name for name, _ in groups] == ["ge_microwave_jvm3160.pdf", "mr_coffee_nl4.pdf"]
+    assert [h.start_line for h in groups[0][1]] == [33, 5, 11]
+
+
+def test_coffee_chunks_never_land_under_the_microwave_heading():
+    # Regression: with reasoning off, a mixed pile led to a Mr. Coffee fact
+    # being cited to the GE manual.
+    context = build_context(_mixed_hits())
+    ge_part, coffee_part = context.split("=== Manual 2: mr_coffee_nl4.pdf")
+    assert context.startswith("=== Manual 1: ge_microwave_jvm3160.pdf (GE JVM3160 microwave oven) ===")
+    assert "Sunbeam" not in ge_part and "mr_coffee" not in ge_part
+    assert "Sunbeam" in coffee_part and "GE one year" not in coffee_part
+    assert [f"[Chunk {i} |" in context for i in range(1, 6)] == [True] * 5  # numbering continues
+
+
+def test_single_manual_context_has_no_group_headers():
+    context = build_context([_hit()])
+    assert "=== Manual" not in context
+    assert context.startswith("[Chunk 1 | Manual: 734301.pdf |")
