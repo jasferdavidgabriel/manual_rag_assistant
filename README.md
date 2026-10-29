@@ -218,7 +218,7 @@ Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect ·
 
 **Jasfer**, MS in Analytics (Applied Machine Intelligence), Northeastern University
 
-[LinkedIn](https://www.linkedin.com/in/jasferdavidgabriel) · [GitHub](https://github.com/jasferdavidgabriel)
+[LinkedIn](https://www.linkedin.com/in/jasferdavid) · [GitHub](https://github.com/jasferdavidgabriel)
 
 ## License
 
