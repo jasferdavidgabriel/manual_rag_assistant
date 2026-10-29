@@ -16,6 +16,8 @@ from manual_rag.ingestion import (
     is_header,
     is_page_number,
     is_toc_line,
+    load_and_chunk,
+    title_from_filename,
     keep_chunk_language,
 )
 
@@ -248,3 +250,47 @@ def test_toc_lines_dropped_but_intro_kept():
     assert "Warranty information" not in text
     assert "|---|" not in text
     assert "Warranty information" in chunk_pages([page], source="c.pdf", remove_toc=False)[0].content
+
+
+# --- Contextual chunk headers ---------------------------------------------- #
+def test_embedding_text_gets_product_and_section_header():
+    c = Chunk(9, "1-YEAR LIMITED WARRANTY", 5, 11, "Sunbeam warrants this product for ONE year.",
+              "mr_coffee_nl4.pdf", manual_title="Mr. Coffee NL4 4-cup coffeemaker")
+    assert c.embedding_text.startswith("Mr. Coffee NL4 4-cup coffeemaker | 1-YEAR LIMITED WARRANTY\n")
+    assert c.to_metadata()["manual_title"] == "Mr. Coffee NL4 4-cup coffeemaker"
+    # The stored text (what users and the LLM read) is unchanged
+    assert c.content == "Sunbeam warrants this product for ONE year."
+
+
+def test_title_from_filename():
+    assert title_from_filename("mr_coffee_nl4.pdf") == "mr coffee nl4"
+    assert title_from_filename("ge-microwave.jvm3160.pdf") == "ge microwave jvm3160"
+
+
+def _manual(d):
+    f = Path(d) / "mr_coffee_nl4.txt"
+    f.write_text("# Warranty\nSunbeam warrants this product for one year from purchase.")
+    return f
+
+
+def test_load_and_chunk_uses_described_title():
+    with tempfile.TemporaryDirectory() as d:
+        chunks = load_and_chunk(_manual(d), {}, describe=lambda pages: "Mr. Coffee 4-cup coffeemaker")
+        assert chunks[0].manual_title == "Mr. Coffee 4-cup coffeemaker"
+        assert chunks[0].embedding_text.startswith("Mr. Coffee 4-cup coffeemaker | Warranty")
+
+
+def test_title_falls_back_to_filename_when_description_fails():
+    def broken(pages):
+        raise RuntimeError("LLM down")
+
+    with tempfile.TemporaryDirectory() as d:
+        assert load_and_chunk(_manual(d), {}, describe=broken)[0].manual_title == "mr coffee nl4"
+        assert load_and_chunk(_manual(d), {}, describe=None)[0].manual_title == "mr coffee nl4"
+
+
+def test_contextual_headers_can_be_switched_off():
+    with tempfile.TemporaryDirectory() as d:
+        chunk = load_and_chunk(_manual(d), {"contextual_headers": False}, describe=lambda p: "X")[0]
+        assert chunk.manual_title == ""
+        assert chunk.embedding_text.startswith("Warranty\n")

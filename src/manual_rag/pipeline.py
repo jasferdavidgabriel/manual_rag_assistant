@@ -46,6 +46,19 @@ def _collection(cfg: Config, reset: bool = False):
     )
 
 
+def _describer(cfg: Config):
+    """Return a function that names a manual's product with the LLM, or None
+    if no API key is set (titles then fall back to the file name)."""
+    if not cfg.section("chunking").get("contextual_headers", True):
+        return None
+    try:
+        client = LLMClient(cfg.section("llm"))
+    except EnvironmentError:
+        logger.warning("No LLM key set; manual titles will come from file names.")
+        return None
+    return client.describe_manual
+
+
 def ingest(
     cfg: Config, path: str | Path | None = None, reset: bool = False, force: bool = False
 ) -> IngestReport:
@@ -61,13 +74,14 @@ def ingest(
     collection = _collection(cfg, reset=reset)
     embedder: Embedder | None = None  # only loaded if something needs indexing
     report = IngestReport()
+    describer = _describer(cfg)
 
     for doc in docs:
         try:
             if not force and stored_hash(collection, doc.name) == file_hash(doc):
                 report.skipped.append(doc.name)
                 continue
-            chunks = load_and_chunk(doc, cfg.section("chunking"))
+            chunks = load_and_chunk(doc, cfg.section("chunking"), describe=describer)
             delete_source(collection, doc.name)
             if not chunks:
                 report.empty.append(doc.name)

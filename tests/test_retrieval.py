@@ -10,7 +10,8 @@ def _raw(dist=0.401):
         "ids": [["a"]],
         "documents": [["Remove the screw."]],
         "metadatas": [[{"page": 17, "section": "Cooktop Light", "start_line": 5,
-                        "end_line": 13, "source": "734301.pdf"}]],
+                        "end_line": 13, "source": "734301.pdf",
+                        "manual_title": "GE JVM3160 microwave"}]],
         "distances": [[dist]],
     }
 
@@ -19,6 +20,7 @@ def test_distance_converted_to_similarity():
     hit = parse_query_results(_raw(0.401))[0]
     assert hit.similarity == 0.599
     assert (hit.page, hit.source, hit.section) == (17, "734301.pdf", "Cooktop Light")
+    assert hit.manual_title == "GE JVM3160 microwave"
 
 
 def test_results_with_missing_metadata_are_skipped():

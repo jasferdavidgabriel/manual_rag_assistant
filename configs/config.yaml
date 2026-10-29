@@ -11,6 +11,7 @@ chunking:
   keep_languages: [en]
   remove_boilerplate: true                          # repeated headers, footers, page numbers
   remove_toc: true                                  # table of contents lines ("Warranty . . . . 9")
+  contextual_headers: true                          # prefix each chunk with its product title before embedding
 
 embedding:
   model_name: sentence-transformers/all-MiniLM-L6-v2

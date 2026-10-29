@@ -19,7 +19,7 @@ import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,9 @@ class Chunk:
     start_line: int
     end_line: int
     content: str
-    source: str           # manual identifier (file name)
-    doc_hash: str = ""    # hash of the source file, used to skip unchanged manuals
+    source: str             # manual identifier (file name)
+    doc_hash: str = ""      # hash of the source file, used to skip unchanged manuals
+    manual_title: str = ""  # short product description, e.g. "Mr. Coffee 4-cup coffeemaker"
 
     @property
     def chunk_id(self) -> str:
@@ -84,10 +85,15 @@ class Chunk:
 
     @property
     def embedding_text(self) -> str:
-        """Text sent to the embedder. Prefixing the section title gives short
-        chunks (like a lone step list) context about what they belong to."""
-        if self.section and self.section != "General":
-            return f"{self.section}\n{self.content}"
+        """Text sent to the embedder: a contextual header plus the content.
+
+        Manuals say "this product" rather than the product name, so a chunk on
+        its own loses track of what it is about. Prefixing the product and the
+        section ("Mr. Coffee coffeemaker | Warranty") restores that context.
+        """
+        header = [part for part in (self.manual_title, self.section) if part and part != "General"]
+        if header:
+            return " | ".join(header) + "\n" + self.content
         return self.content
 
     def to_metadata(self) -> dict[str, Any]:
@@ -220,6 +226,7 @@ def chunk_pages(
     doc_hash: str = "",
     remove_boilerplate: bool = True,
     remove_toc: bool = True,
+    manual_title: str = "",
 ) -> list[Chunk]:
     """Split Markdown pages into section aware chunks.
 
@@ -251,7 +258,8 @@ def chunk_pages(
             content = "\n".join(buffer).strip()
             if len(content) >= min_chunk_chars:
                 chunks.append(
-                    Chunk(page_num, current_section, start_line, last_line, content, source, doc_hash)
+                    Chunk(page_num, current_section, start_line, last_line, content, source,
+                          doc_hash, manual_title)
                 )
             buffer.clear()
 
@@ -370,11 +378,40 @@ def discover_documents(path: str | Path) -> list[Path]:
     )
 
 
-def load_and_chunk(path: str | Path, chunk_cfg: dict[str, Any]) -> list[Chunk]:
-    """Extract one manual and chunk it using values from the config."""
+def title_from_filename(name: str) -> str:
+    """Fallback product title from a file name: "mr_coffee_nl4.pdf" -> "mr coffee nl4"."""
+    return re.sub(r"[_\-.]+", " ", Path(name).stem).strip()
+
+
+def load_and_chunk(
+    path: str | Path,
+    chunk_cfg: dict[str, Any],
+    describe: Callable[[list[dict[str, Any]]], str | None] | None = None,
+) -> list[Chunk]:
+    """Extract one manual and chunk it using values from the config.
+
+    Args:
+        path: The manual file.
+        chunk_cfg: The "chunking" section of the config.
+        describe: Optional function that reads the extracted pages and returns a
+            short product title (e.g. via an LLM). Used for contextual headers
+            when chunk_cfg["contextual_headers"] is true. Falls back to the file name.
+    """
     path = Path(path)
+    pages = extract_pages(path)
+
+    manual_title = ""
+    if chunk_cfg.get("contextual_headers", True):
+        if describe is not None:
+            try:
+                manual_title = describe(pages) or ""
+            except Exception as exc:  # never let a title failure block ingestion
+                logger.warning("%s: could not describe manual (%s)", path.name, exc)
+        manual_title = manual_title or title_from_filename(path.name)
+        logger.info("%s: manual title = %r", path.name, manual_title)
+
     chunks = chunk_pages(
-        extract_pages(path),
+        pages,
         source=path.name,
         max_lines_per_chunk=chunk_cfg.get("max_lines_per_chunk", 30),
         min_chunk_chars=chunk_cfg.get("min_chunk_chars", 20),
@@ -382,6 +419,7 @@ def load_and_chunk(path: str | Path, chunk_cfg: dict[str, Any]) -> list[Chunk]:
         doc_hash=file_hash(path),
         remove_boilerplate=chunk_cfg.get("remove_boilerplate", True),
         remove_toc=chunk_cfg.get("remove_toc", True),
+        manual_title=manual_title,
     )
     logger.info("%s: %d chunks", path.name, len(chunks))
     return chunks

@@ -45,6 +45,25 @@ Question: {question}"""
 
 _THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
+DESCRIBE_PROMPT = """Below are the first pages of a product manual.
+In at most 10 words, name the product it is for: brand, model and product type.
+Reply with ONLY the product name, nothing else.
+Examples: "GE JVM3160 over-the-range microwave oven", "Mr. Coffee NL4 4-cup coffeemaker"
+
+Manual excerpt:
+{excerpt}"""
+
+
+def clean_title(text: str | None, max_words: int = 12) -> str | None:
+    """Tidy an LLM product title: first line, no quotes or labels, limited length."""
+    if not text:
+        return None
+    line = text.strip().splitlines()[0].strip()
+    line = re.sub(r"^(product( name)?|answer)\s*:\s*", "", line, flags=re.IGNORECASE)
+    line = line.strip(" \"'*`.")
+    words = line.split()
+    return " ".join(words[:max_words]) or None
+
 
 # Errors where trying the next model makes sense: overloaded, retired, rate
 # limited, or a server side failure. Auth errors are NOT here, because a bad
@@ -77,7 +96,8 @@ class Answer:
 def build_context(hits: Sequence[Hit]) -> str:
     """Format retrieved chunks with their location headers for the prompt."""
     return "\n\n".join(
-        f"[Chunk {i} | Manual: {h.source} | Page: {h.page} | Section: {h.section} | "
+        f"[Chunk {i} | Manual: {h.source}{f' ({h.manual_title})' if h.manual_title else ''} | "
+        f"Page: {h.page} | Section: {h.section} | "
         f"Lines: {h.start_line}-{h.end_line}]\n{h.text}"
         for i, h in enumerate(hits, start=1)
     )
@@ -146,11 +166,13 @@ class LLMClient:
             }
         return kwargs
 
-    def generate(self, question: str, hits: Sequence[Hit]) -> Answer:
-        """Call the LLM (with fallbacks) and return a parsed answer."""
-        kwargs = self._request_kwargs(question, hits)
-        failures: list[str] = []
+    def _complete(self, kwargs: dict[str, Any]) -> tuple[str, Any]:
+        """Send one chat request, falling back through the model list.
 
+        Returns:
+            (model name, the response's first choice)
+        """
+        failures: list[str] = []
         for model in self.models:
             try:
                 response = self.client.chat.completions.create(model=model, **kwargs)
@@ -160,18 +182,34 @@ class LLMClient:
                 logger.warning("%s failed (%s), trying next model", model, type(exc).__name__)
                 failures.append(f"{model}: {type(exc).__name__}")
                 continue
-
             choice = response.choices[0]
             if getattr(choice, "finish_reason", None) == "length":
                 logger.warning("Answer was cut off at max_tokens. Raise llm.max_tokens in the config.")
-            message = choice.message
-            reasoning = getattr(message, "reasoning", None) or getattr(
-                message, "reasoning_content", None
-            )
-            answer, reasoning = split_reasoning(message.content, reasoning)
-            if not answer:
-                # A reasoning model can spend its whole budget thinking. Never show a blank.
-                answer = EMPTY_ANSWER_MESSAGE
-            return Answer(answer=answer, reasoning=reasoning, hits=list(hits), model=model)
-
+            return model, choice
         raise RuntimeError("All models failed: " + "; ".join(failures))
+
+    def generate(self, question: str, hits: Sequence[Hit]) -> Answer:
+        """Call the LLM (with fallbacks) and return a parsed answer."""
+        model, choice = self._complete(self._request_kwargs(question, hits))
+        message = choice.message
+        reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
+        answer, reasoning = split_reasoning(message.content, reasoning)
+        if not answer:
+            # A reasoning model can spend its whole budget thinking. Never show a blank.
+            answer = EMPTY_ANSWER_MESSAGE
+        return Answer(answer=answer, reasoning=reasoning, hits=list(hits), model=model)
+
+    def describe_manual(self, pages: Sequence[dict[str, Any]], max_chars: int = 4000) -> str | None:
+        """Ask the LLM for a short product title from a manual's first pages.
+
+        Called once per manual at ingest time to build contextual chunk headers.
+        """
+        excerpt = "\n".join((p.get("text") or "") for p in pages)[:max_chars]
+        kwargs = {
+            "messages": [{"role": "user", "content": DESCRIBE_PROMPT.format(excerpt=excerpt)}],
+            "temperature": 0.0,
+            "max_tokens": self.cfg.get("max_tokens", 4096),
+        }
+        _, choice = self._complete(kwargs)
+        answer, _ = split_reasoning(choice.message.content)
+        return clean_title(answer)

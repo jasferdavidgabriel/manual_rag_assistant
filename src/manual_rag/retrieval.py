@@ -22,6 +22,7 @@ class Hit:
     end_line: int
     similarity: float  # 1 minus cosine distance, so higher is better
     source: str = ""   # manual the chunk came from
+    manual_title: str = ""  # product description of that manual
 
 
 def parse_query_results(results: dict[str, Any]) -> list[Hit]:
@@ -51,6 +52,7 @@ def parse_query_results(results: dict[str, Any]) -> list[Hit]:
                 end_line=int(meta.get("end_line", 0)),
                 similarity=round(1.0 - float(dist), 4),
                 source=str(meta.get("source", "")),
+                manual_title=str(meta.get("manual_title", "")),
             )
         )
     return hits

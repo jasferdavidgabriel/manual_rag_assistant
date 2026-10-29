@@ -4,7 +4,13 @@ import types
 
 import pytest
 
-from manual_rag.generation import EMPTY_ANSWER_MESSAGE, LLMClient, build_prompt, split_reasoning
+from manual_rag.generation import (
+    EMPTY_ANSWER_MESSAGE,
+    LLMClient,
+    build_prompt,
+    clean_title,
+    split_reasoning,
+)
 from manual_rag.retrieval import Hit
 
 
@@ -123,3 +129,23 @@ def test_empty_answer_is_replaced_with_clear_message():
     client, _ = _client({"main-model": ""})
     answer = client.generate("q", [_hit()])
     assert answer.answer == EMPTY_ANSWER_MESSAGE
+
+
+# --- Manual titles for contextual headers ---------------------------------- #
+def test_clean_title():
+    assert clean_title('"Mr. Coffee NL4 4-cup coffeemaker"') == "Mr. Coffee NL4 4-cup coffeemaker"
+    assert clean_title("Product name: GE JVM3160 microwave.\nExtra text") == "GE JVM3160 microwave"
+    assert clean_title("") is None
+    assert len(clean_title("word " * 30).split()) == 12
+
+
+def test_describe_manual_uses_llm_and_cleans_output():
+    client, calls = _client({"main-model": '"Mr. Coffee NL4 4-cup coffeemaker"'})
+    title = client.describe_manual([{"page": 1, "text": "MR. COFFEE 4-CUP COFFEEMAKER"}])
+    assert title == "Mr. Coffee NL4 4-cup coffeemaker"
+    assert calls == ["main-model"]
+
+
+def test_prompt_shows_manual_title():
+    hit = Hit("Text.", 9, "Warranty", 5, 11, 0.5, "mr_coffee_nl4.pdf", "Mr. Coffee 4-cup coffeemaker")
+    assert "Manual: mr_coffee_nl4.pdf (Mr. Coffee 4-cup coffeemaker)" in build_prompt("q", [hit])
