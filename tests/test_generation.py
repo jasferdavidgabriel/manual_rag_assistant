@@ -161,8 +161,9 @@ def test_chat_template_kwargs_are_sent_to_the_model():
                         extra_cfg={"chat_template_kwargs": {"enable_thinking": False}})
     client.generate("q", [_hit()])
     assert client.create.last_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
-    client.describe_manual([{"page": 1, "text": "x"}])  # title requests are fast too
-    assert client.create.last_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    # Naming the manual keeps reasoning ON (no switch sent): accuracy matters more there.
+    client.describe_manual([{"page": 1, "text": "x"}])
+    assert "extra_body" not in client.create.last_kwargs
 
 
 def test_no_extra_body_when_not_configured():
@@ -212,3 +213,10 @@ def test_single_manual_context_has_no_group_headers():
     context = build_context([_hit()])
     assert "=== Manual" not in context
     assert context.startswith("[Chunk 1 | Manual: 734301.pdf |")
+
+
+def test_title_prompt_forbids_guessing():
+    # Regression: with reasoning off the model named a 4-cup NL4 "12-Cup Programmable".
+    from manual_rag.generation import DESCRIBE_PROMPT
+    assert "Use ONLY names and numbers that appear in the excerpt" in DESCRIBE_PROMPT
+    assert "leave it out rather than guess" in DESCRIBE_PROMPT

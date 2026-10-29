@@ -93,6 +93,7 @@ def ingest(
                 chunk.ingested_at = stamp
             embedder = embedder or _embedder(cfg)
             report.indexed[doc.name] = index_chunks(collection, embedder, chunks)
+            set_current_manual(cfg, doc.name)
         except Exception as exc:  # keep going, report at the end
             logger.exception("Failed to ingest %s", doc.name)
             report.failed[doc.name] = f"{type(exc).__name__}: {exc}"
@@ -135,6 +136,7 @@ def load_file(cfg: Config, path: str | Path) -> str:
         raise RuntimeError(f"Couldn't read {path.name}: {report.failed[path.name]}")
     if path.name in report.empty:
         raise ValueError("No readable text was found in this manual.")
+    set_current_manual(cfg, path.name)
     return path.name
 
 
@@ -150,9 +152,31 @@ def latest_from_metadata(metadatas: list[dict]) -> str | None:
     return max(newest, key=lambda name: (newest[name], name))
 
 
+def _current_file(cfg: Config) -> Path:
+    return cfg.path("chroma_dir").parent / "current_manual.txt"
+
+
+def set_current_manual(cfg: Config, name: str) -> None:
+    """Remember the manual the user is working with (set by --file)."""
+    current = _current_file(cfg)
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.write_text(name, encoding="utf-8")
+
+
 def latest_manual(cfg: Config) -> str | None:
-    """The manual uploaded most recently: the default for ask, chat and search."""
-    return latest_from_metadata(_collection(cfg).get(include=["metadatas"]).get("metadatas") or [])
+    """Default manual for ask, chat and search when none is given.
+
+    The manual last used with --file wins, so you can keep asking about it.
+    Otherwise it's the most recently uploaded one.
+    """
+    collection = _collection(cfg)
+    metadatas = collection.get(include=["metadatas"]).get("metadatas") or []
+    current = _current_file(cfg)
+    if current.exists():
+        name = current.read_text(encoding="utf-8").strip()
+        if name and any(m.get("source") == name for m in metadatas):
+            return name
+    return latest_from_metadata(metadatas)
 
 
 def manuals(cfg: Config) -> dict[str, int]:

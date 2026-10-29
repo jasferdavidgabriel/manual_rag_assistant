@@ -49,7 +49,8 @@ def test_ingest_stamps_every_chunk_with_the_same_time(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "index_chunks",
                         lambda col, emb, chunks: indexed.extend(chunks) or len(chunks))
 
-    cfg = Config(raw={"paths": {"documents": "."}, "chunking": {}}, root=Path(tmp_path))
+    cfg = Config(raw={"paths": {"documents": ".", "chroma_dir": "models/chroma"}, "chunking": {}},
+                 root=Path(tmp_path))
     report = pipeline.ingest(cfg)
     assert report.indexed == {"kettle.txt": 2}
     stamps = {c.ingested_at for c in indexed}
@@ -58,7 +59,7 @@ def test_ingest_stamps_every_chunk_with_the_same_time(monkeypatch, tmp_path):
 
 # --- Ad hoc files (--file) --------------------------------------------------- #
 def _cfg(tmp_path):
-    return Config(raw={"paths": {"documents": "."}, "chunking": {},
+    return Config(raw={"paths": {"documents": ".", "chroma_dir": "models/chroma"}, "chunking": {},
                        "upload": {"max_pages": 50, "min_chars_per_page": 200}}, root=Path(tmp_path))
 
 
@@ -74,6 +75,32 @@ def test_load_file_indexes_and_returns_the_name(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "ingest", lambda cfg, p: calls.append(p) or _report(indexed={"kettle.pdf": 9}))
     assert pipeline.load_file(_cfg(tmp_path), manual) == "kettle.pdf"
     assert calls == [manual]
+
+
+def test_file_becomes_current_even_when_unchanged(monkeypatch, tmp_path):
+    # Regression: --file on an already indexed manual didn't make it the default,
+    # so the next question without --file went to a different manual.
+    cfg = _cfg(tmp_path)
+    for name in ("ge.pdf", "coffee.pdf"):
+        (tmp_path / name).write_text("x")
+    metas = [{"source": "ge.pdf", "ingested_at": 100.0}, {"source": "coffee.pdf", "ingested_at": 200.0}]
+    monkeypatch.setattr(pipeline, "_collection",
+                        lambda cfg, reset=False: SimpleNamespace(get=lambda include=None: {"metadatas": metas}))
+    monkeypatch.setattr(pipeline, "inspect_document", lambda p: DocInfo(pages=8, text_chars=12000))
+    monkeypatch.setattr(pipeline, "ingest", lambda cfg, p: _report(skipped=[Path(p).name]))
+
+    assert pipeline.latest_manual(cfg) == "coffee.pdf"   # newest upload
+    pipeline.load_file(cfg, tmp_path / "ge.pdf")          # unchanged, but now in use
+    assert pipeline.latest_manual(cfg) == "ge.pdf"
+
+
+def test_current_manual_ignored_if_no_longer_indexed(monkeypatch, tmp_path):
+    cfg = _cfg(tmp_path)
+    pipeline.set_current_manual(cfg, "deleted.pdf")
+    metas = [{"source": "coffee.pdf", "ingested_at": 200.0}]
+    monkeypatch.setattr(pipeline, "_collection",
+                        lambda cfg, reset=False: SimpleNamespace(get=lambda include=None: {"metadatas": metas}))
+    assert pipeline.latest_manual(cfg) == "coffee.pdf"
 
 
 def test_load_file_unchanged_manual_is_fine(monkeypatch, tmp_path):

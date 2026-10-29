@@ -49,6 +49,8 @@ _THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 DESCRIBE_PROMPT = """Below are the first pages of a product manual.
 In at most 10 words, name the product it is for: brand, model and product type.
+Use ONLY names and numbers that appear in the excerpt. The excerpt may be messy OCR text;
+if you cannot read the model number or size with confidence, leave it out rather than guess.
 Reply with ONLY the product name, nothing else.
 Examples: "Bosch SHX878 built-in dishwasher", "Netgear R7000 Wi-Fi router"
 
@@ -233,6 +235,11 @@ class LLMClient:
         """Ask the LLM for a short product title from a manual's first pages.
 
         Called once per manual at ingest time to build contextual chunk headers.
+        Deliberately ignores llm.chat_template_kwargs, so reasoning stays ON for
+        this one call: the title goes onto every chunk and citation, and without
+        reasoning the model guessed a wrong product from a messy scanned cover
+        ("12-Cup Programmable" for a 4-cup NL4). It runs once per upload, so the
+        extra seconds don't affect answer speed.
         """
         excerpt = "\n".join((p.get("text") or "") for p in pages)[:max_chars]
         kwargs = {
@@ -240,6 +247,6 @@ class LLMClient:
             "temperature": 0.0,
             "max_tokens": self.cfg.get("max_tokens", 4096),
         }
-        _, choice = self._complete(self._with_template_kwargs(kwargs))
+        _, choice = self._complete(kwargs)
         answer, _ = split_reasoning(choice.message.content)
         return clean_title(answer)
