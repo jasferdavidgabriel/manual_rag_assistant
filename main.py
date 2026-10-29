@@ -1,8 +1,9 @@
 """Command line entry point.
 
 Usage:
+    python main.py ask "How do I clean it?" --file manual.pdf   # ad hoc: this file only
     python main.py ingest                        # index every manual in data/raw
-    python main.py ingest --path my_manual.pdf   # index one file
+    python main.py ingest --path my_manual.pdf   # index one file (becomes the default manual)
     python main.py list                          # show indexed manuals
     python main.py search "light not working"    # retrieval only, no LLM
     python main.py ask "How do I replace the cooktop light?"
@@ -43,6 +44,37 @@ def print_answer(answer: Answer, limit: int, show_reasoning: bool) -> None:
     print_hits(answer.hits, limit)
 
 
+def _add_manual_options(parser) -> None:
+    """--file, --manual and --all are alternatives, so only one can be given."""
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--file", default=None,
+                       help="Ad hoc: answer from this manual file (indexed first if new or changed).")
+    group.add_argument("--manual", default=None,
+                       help="An already indexed manual (file name). Default: the most recent upload.")
+    group.add_argument("--all", action="store_true", help="Search every indexed manual.")
+
+
+def choose_manual(cfg, args) -> str | None:
+    """--file (ad hoc) or --manual pick one manual, --all searches everything,
+    otherwise the most recently uploaded manual is used."""
+    if args.file:
+        name = pipeline.load_file(cfg, args.file)
+        title = pipeline.manual_title(cfg, name)
+        print(f"Using: {name}" + (f" ({title})" if title else ""))
+        return name
+    if args.manual:
+        return args.manual
+    if args.all:
+        print("Searching: all manuals")
+        return None
+    latest = pipeline.latest_manual(cfg)
+    if latest:
+        title = pipeline.manual_title(cfg, latest)
+        print(f"Searching: {latest}" + (f" ({title})" if title else "")
+              + "   [use --manual NAME or --all to change]")
+    return latest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cited Q&A over instruction manuals.")
     parser.add_argument("--config", default=None, help="Path to a YAML config file.")
@@ -58,16 +90,16 @@ def main() -> None:
 
     p_search = sub.add_parser("search", help="Show the top chunks for a query (no LLM).")
     p_search.add_argument("query")
-    p_search.add_argument("--manual", default=None, help="Search within one manual (file name).")
+    _add_manual_options(p_search)
     p_search.add_argument("--show-text", action="store_true", help="Print each chunk's text.")
 
     p_ask = sub.add_parser("ask", help="Ask one question and get a cited answer.")
     p_ask.add_argument("question")
-    p_ask.add_argument("--manual", default=None, help="Search within one manual (file name).")
+    _add_manual_options(p_ask)
     p_ask.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
 
     p_chat = sub.add_parser("chat", help="Interactive question loop.")
-    p_chat.add_argument("--manual", default=None, help="Search within one manual (file name).")
+    _add_manual_options(p_chat)
     p_chat.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
 
     sub.add_parser("evaluate", help="Score retrieval on the labelled question set.")
@@ -87,6 +119,15 @@ def main() -> None:
         pass
 
     cfg = load_config(args.config)
+    try:
+        run(cfg, args)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"❌ {exc}")
+        sys.exit(1)
+
+
+def run(cfg, args) -> None:
+    """Execute one CLI command."""
     display_k = cfg.section("retrieval").get("display_k", 5)
 
     if args.command == "ingest":
@@ -105,17 +146,18 @@ def main() -> None:
         for name, n in pipeline.manuals(cfg).items():
             print(f"{n:>6} chunks  {name}")
     elif args.command == "search":
-        hits = pipeline.search(cfg, args.query, manual=args.manual)
+        hits = pipeline.search(cfg, args.query, manual=choose_manual(cfg, args))
         print_hits(hits, display_k)
         if args.show_text:
             for i, h in enumerate(hits[:3], start=1):
                 print(f"\n--- #{i}  page {h.page}  {h.section} ---\n{h.text}")
     elif args.command == "ask":
-        answer = pipeline.ask(cfg, args.question, manual=args.manual)
+        answer = pipeline.ask(cfg, args.question, manual=choose_manual(cfg, args))
         print_answer(answer, display_k, args.show_reasoning)
     elif args.command == "chat":
+        manual = choose_manual(cfg, args)  # first, so an ad hoc file is indexed before searching
         retriever = pipeline.build_retriever(cfg)
-        print("Ask about your manuals (empty line or Ctrl+C to quit).")
+        print("Ask about your manual (empty line or Ctrl+C to quit).")
         while True:
             try:
                 question = input("\n> ").strip()
@@ -123,7 +165,7 @@ def main() -> None:
                 break
             if not question:
                 break
-            answer = pipeline.ask(cfg, question, manual=args.manual, retriever=retriever)
+            answer = pipeline.ask(cfg, question, manual=manual, retriever=retriever)
             print_answer(answer, display_k, args.show_reasoning)
     elif args.command == "evaluate":
         result = pipeline.evaluate(cfg)

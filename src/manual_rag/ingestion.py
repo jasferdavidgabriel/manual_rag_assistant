@@ -76,6 +76,7 @@ class Chunk:
     source: str             # manual identifier (file name)
     doc_hash: str = ""      # hash of the source file, used to skip unchanged manuals
     manual_title: str = ""  # short product description, e.g. "Mr. Coffee 4-cup coffeemaker"
+    ingested_at: float = 0.0  # unix time the manual was indexed (newest = default manual)
 
     @property
     def chunk_id(self) -> str:

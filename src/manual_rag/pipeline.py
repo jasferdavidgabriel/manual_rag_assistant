@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from .indexing import (
 )
 from .ingestion import discover_documents, file_hash, load_and_chunk
 from .retrieval import Hit, Retriever
+from .ui import inspect_document, is_supported, validate_upload
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +88,71 @@ def ingest(
             if not chunks:
                 report.empty.append(doc.name)
                 continue
+            stamp = time.time()
+            for chunk in chunks:
+                chunk.ingested_at = stamp
             embedder = embedder or _embedder(cfg)
             report.indexed[doc.name] = index_chunks(collection, embedder, chunks)
         except Exception as exc:  # keep going, report at the end
             logger.exception("Failed to ingest %s", doc.name)
             report.failed[doc.name] = f"{type(exc).__name__}: {exc}"
     return report
+
+
+def manual_title(cfg: Config, source: str) -> str:
+    """The product title stored with a manual's chunks ("" if not indexed)."""
+    res = _collection(cfg).get(where={"source": source}, limit=1, include=["metadatas"])
+    metas = res.get("metadatas") or []
+    return str(metas[0].get("manual_title", "")) if metas else ""
+
+
+def load_file(cfg: Config, path: str | Path) -> str:
+    """Ad hoc use: check a manual file, index it if new or changed, return its name.
+
+    Applies the same limits as the web app (page count, mostly-images check).
+    Unchanged files are skipped by ingest, so asking again is fast.
+
+    Raises:
+        FileNotFoundError, ValueError, RuntimeError with a message meant for users.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"No file at {path}")
+    if not is_supported(path.name):
+        raise ValueError("Unsupported file type. Use PDF, Word (.docx), EPUB, XPS, .txt or .md.")
+
+    limits = cfg.section("upload")
+    problem = validate_upload(
+        inspect_document(path),
+        limits.get("max_pages", 50),
+        limits.get("min_chars_per_page", 200),
+    )
+    if problem:
+        raise ValueError(problem)
+
+    report = ingest(cfg, path)
+    if path.name in report.failed:
+        raise RuntimeError(f"Couldn't read {path.name}: {report.failed[path.name]}")
+    if path.name in report.empty:
+        raise ValueError("No readable text was found in this manual.")
+    return path.name
+
+
+def latest_from_metadata(metadatas: list[dict]) -> str | None:
+    """Name of the most recently indexed manual in a list of chunk metadata."""
+    newest: dict[str, float] = {}
+    for meta in metadatas:
+        source = meta.get("source")
+        if source:
+            newest[source] = max(newest.get(source, 0.0), float(meta.get("ingested_at") or 0.0))
+    if not newest:
+        return None
+    return max(newest, key=lambda name: (newest[name], name))
+
+
+def latest_manual(cfg: Config) -> str | None:
+    """The manual uploaded most recently: the default for ask, chat and search."""
+    return latest_from_metadata(_collection(cfg).get(include=["metadatas"]).get("metadatas") or [])
 
 
 def manuals(cfg: Config) -> dict[str, int]:
