@@ -72,19 +72,21 @@ def _response(text):
     return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message, finish_reason="stop")])
 
 
-def _client(outcomes, fallbacks=("backup-model",)):
+def _client(outcomes, fallbacks=("backup-model",), extra_cfg=None):
     """Build an LLMClient whose fake API returns or raises per model name."""
     calls = []
 
     def create(model, **kwargs):
         calls.append(model)
+        create.last_kwargs = kwargs
         result = outcomes[model]
         if isinstance(result, Exception):
             raise result
         return _response(result)
 
     client = LLMClient.__new__(LLMClient)  # skip __init__ (no openai / key needed)
-    client.cfg = {"model": "main-model", "fallback_models": list(fallbacks)}
+    client.cfg = {"model": "main-model", "fallback_models": list(fallbacks), **(extra_cfg or {})}
+    client.create = create
     client.client = types.SimpleNamespace(chat=types.SimpleNamespace(
         completions=types.SimpleNamespace(create=create)))
     return client, calls
@@ -149,3 +151,25 @@ def test_describe_manual_uses_llm_and_cleans_output():
 def test_prompt_shows_manual_title():
     hit = Hit("Text.", 9, "Warranty", 5, 11, 0.5, "mr_coffee_nl4.pdf", "Mr. Coffee 4-cup coffeemaker")
     assert "Manual: mr_coffee_nl4.pdf (Mr. Coffee 4-cup coffeemaker)" in build_prompt("q", [hit])
+
+
+# --- Speed: model specific switches such as turning reasoning off ---------- #
+def test_chat_template_kwargs_are_sent_to_the_model():
+    client, _ = _client({"main-model": "**Answer:** ok"},
+                        extra_cfg={"chat_template_kwargs": {"enable_thinking": False}})
+    client.generate("q", [_hit()])
+    assert client.create.last_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    client.describe_manual([{"page": 1, "text": "x"}])  # title requests are fast too
+    assert client.create.last_kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_no_extra_body_when_not_configured():
+    client, _ = _client({"main-model": "**Answer:** ok"})
+    client.generate("q", [_hit()])
+    assert "extra_body" not in client.create.last_kwargs
+
+
+def test_title_prompt_examples_are_not_the_test_manuals():
+    # Regression: using the indexed manuals as examples let the model copy them.
+    from manual_rag.generation import DESCRIBE_PROMPT
+    assert "Mr. Coffee" not in DESCRIBE_PROMPT and "JVM3160" not in DESCRIBE_PROMPT

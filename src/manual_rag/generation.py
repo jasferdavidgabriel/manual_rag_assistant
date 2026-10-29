@@ -157,13 +157,14 @@ class LLMClient:
             "top_p": self.cfg.get("top_p", 0.95),
             "max_tokens": self.cfg.get("max_tokens", 4096),
         }
-        if self.cfg.get("enable_thinking"):
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": {
-                    "thinking": True,
-                    "reasoning_effort": self.cfg.get("reasoning_effort", "high"),
-                }
-            }
+        return self._with_template_kwargs(kwargs)
+
+    def _with_template_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Add model specific switches from llm.chat_template_kwargs in the config,
+        e.g. {"enable_thinking": False} turns off reasoning on Nemotron models."""
+        template = self.cfg.get("chat_template_kwargs")
+        if template:
+            kwargs["extra_body"] = {"chat_template_kwargs": dict(template)}
         return kwargs
 
     def _complete(self, kwargs: dict[str, Any]) -> tuple[str, Any]:
@@ -210,6 +211,6 @@ class LLMClient:
             "temperature": 0.0,
             "max_tokens": self.cfg.get("max_tokens", 4096),
         }
-        _, choice = self._complete(kwargs)
+        _, choice = self._complete(self._with_template_kwargs(kwargs))
         answer, _ = split_reasoning(choice.message.content)
         return clean_title(answer)

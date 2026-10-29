@@ -23,7 +23,7 @@ vector_store:
   distance: cosine
 
 retrieval:
-  top_k: 10
+  top_k: 5                                          # eval: right page always in top 5 (Hit@5 = 1.0)
   display_k: 5
 
 llm:
@@ -37,5 +37,9 @@ llm:
   temperature: 0.3
   top_p: 0.95
   max_tokens: 8192                                # reasoning models need room to think AND answer
-  enable_thinking: false                          # DeepSeek specific reasoning switch
-  reasoning_effort: high
+  chat_template_kwargs:                           # model specific switches, sent as extra_body
+    enable_thinking: false                        # Nemotron: skip reasoning (~4s instead of ~30s)
+
+upload:                                             # web app limits
+  max_pages: 50                                     # reject longer manuals
+  min_chars_per_page: 200                           # below this the file is mostly images
