@@ -43,3 +43,7 @@ llm:
 upload:                                             # web app limits
   max_pages: 50                                     # reject longer manuals
   min_chars_per_page: 200                           # below this the file is mostly images
+
+tracking:                                           # MLflow experiment tracking for evaluate runs
+  tracking_uri: sqlite:///mlflow.db                 # local database; view with: mlflow ui --backend-store-uri sqlite:///mlflow.db
+  experiment_name: manual-rag-retrieval

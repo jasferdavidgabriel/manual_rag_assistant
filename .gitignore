@@ -13,3 +13,8 @@ models/*
 
 .ipynb_checkpoints/
 .DS_Store
+
+# MLflow (local experiment runs)
+mlflow.db
+mlruns/
+mlartifacts/

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from manual_rag import pipeline  # noqa: E402
+from manual_rag import pipeline, tracking  # noqa: E402
 from manual_rag.config import load_config  # noqa: E402
 from manual_rag.generation import Answer  # noqa: E402
 from manual_rag.retrieval import Hit  # noqa: E402
@@ -102,7 +102,10 @@ def main() -> None:
     _add_manual_options(p_chat)
     p_chat.add_argument("--show-reasoning", action="store_true", help="Print the model's reasoning.")
 
-    sub.add_parser("evaluate", help="Score retrieval on the labelled question set.")
+    p_eval = sub.add_parser("evaluate", help="Score retrieval on the labelled question set.")
+    p_eval.add_argument("--run-name", help='Name for this MLflow run, e.g. "headers off".')
+    p_eval.add_argument("--note", help="Free text note saved with the MLflow run.")
+    p_eval.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
 
     args = parser.parse_args()
     logging.basicConfig(
@@ -169,6 +172,15 @@ def run(cfg, args) -> None:
             print_answer(answer, display_k, args.show_reasoning)
     elif args.command == "evaluate":
         result = pipeline.evaluate(cfg)
+        if not args.no_track:
+            try:
+                run_id = tracking.log_evaluation(
+                    cfg, result, run_name=args.run_name,
+                    tags={"note": args.note} if args.note else None)
+                print(f"📈 Logged to MLflow (run {run_id[:8]}). "
+                      "View with: mlflow ui --backend-store-uri sqlite:///mlflow.db\n")
+            except RuntimeError as exc:  # MLflow not installed: still show the scores
+                print(f"⚠️  Not tracked in MLflow: {exc}\n")
         print(f"Manuals indexed: {', '.join(result['manuals'])}")
         for mode, title in (("within_manual", "Search within each question's manual"),
                             ("all_manuals", "Search across ALL manuals (right manual + page)")):
