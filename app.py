@@ -157,6 +157,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Manual Assistant web app")
     parser.add_argument("--share", action="store_true", help="Create a public link (for Colab).")
     parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Address to listen on. Use 0.0.0.0 inside Docker.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
@@ -168,4 +170,4 @@ if __name__ == "__main__":
     except ImportError:
         pass
 
-    build_app().queue().launch(share=args.share, server_port=args.port)
+    build_app().queue().launch(share=args.share, server_name=args.host, server_port=args.port)
