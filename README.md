@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-82%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-95%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -186,7 +186,61 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 82 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 95 unit tests on GitHub Actions, then builds this image and checks that it starts.
+
+## Use the REST API
+
+The same pipeline is also served as a REST API with FastAPI, so other software (a support portal, a chatbot, a Slack bot) can use it. Interactive docs are generated automatically at `/docs`.
+
+```bash
+uvicorn manual_rag.api:app --app-dir src --port 8000
+# or in Docker:
+docker run --rm -p 8000:8000 --env-file .env manual-rag uvicorn manual_rag.api:app --app-dir src --host 0.0.0.0 --port 8000
+```
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/health` | Liveness check (used by CI and for deployment) |
+| `POST` | `/manuals` | Upload a manual; it is checked, indexed and becomes the current manual |
+| `GET` | `/manuals/current` | The manual questions go to by default |
+| `POST` | `/ask` | Ask a question; returns the answer plus cited sources |
+
+Upload a manual:
+
+```bash
+curl -X POST localhost:8000/manuals -F "file=@data/raw/ge_microwave_jvm3160.pdf"
+```
+```json
+{"manual": "ge_microwave_jvm3160.pdf", "title": "GE JVM3160 microwave oven", "pages": 46, "sections": 80}
+```
+
+Ask a question:
+
+```bash
+curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
+  -d '{"question": "How do I lock the controls?"}'
+```
+```json
+{
+  "answer": "To lock the controls, press and hold the Cancel/Off button for about three seconds. When the control panel is locked, \u201cLoc\u201d will be displayed briefly anytime a button is pressed. ...",
+  "manual": "ge_microwave_jvm3160.pdf",
+  "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "sources": [
+    {
+      "manual": "ge_microwave_jvm3160.pdf",
+      "manual_title": "GE JVM3160 microwave oven",
+      "page": 13,
+      "section": "Control Lock-Out",
+      "start_line": 25,
+      "end_line": 31,
+      "similarity": 0.4341,
+      "text": "... To lock or unlock the controls, press and hold Cancel/Off for about three seconds. ..."
+    }
+  ]
+}
+```
+
+Errors use meaningful status codes: `415` unsupported file type, `413` file too large, `422` rejected upload (too many pages, mostly images, unreadable) or blank question, `404` unknown manual, `409` no manual uploaded yet, `502` the language model failed. Uploads are checked in a temporary folder first, so a rejected file never replaces a manual that is already indexed.
 
 ## Project structure
 
@@ -205,15 +259,16 @@ manual_rag_assistant/
 │   ├── generation.py         # prompt, grouping by manual, LLM with fallbacks
 │   ├── evaluation.py         # Hit@k, MRR, charts
 │   ├── pipeline.py           # ingest / ask / evaluate / ad hoc file handling
+│   ├── api.py                # REST API (FastAPI)
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 82 unit tests, no GPU, model or API key needed
+├── tests/                    # 95 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```
 
 ## Tech stack
 
-Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · pytest
+Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · FastAPI · pytest · GitHub Actions · Docker
 
 ## Known limitations
 
