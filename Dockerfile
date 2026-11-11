@@ -30,5 +30,5 @@ RUN useradd --create-home appuser \
     && chown -R appuser /app
 USER appuser
 
-EXPOSE 7860
+EXPOSE 7860 8000
 CMD ["python", "app.py", "--host", "0.0.0.0"]

@@ -43,3 +43,14 @@ jobs:
 
       - name: Smoke test the CLI inside the container
         run: docker run --rm manual-rag:ci python main.py --help
+
+      - name: Smoke test the API inside the container
+        run: |
+          docker run -d --name api -p 8000:8000 manual-rag:ci \
+            uvicorn manual_rag.api:app --app-dir src --host 0.0.0.0 --port 8000
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8000/health; then echo; echo "API is up"; exit 0; fi
+            sleep 1
+          done
+          docker logs api
+          exit 1

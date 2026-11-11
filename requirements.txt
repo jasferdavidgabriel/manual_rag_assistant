@@ -9,3 +9,6 @@ matplotlib>=3.8
 python-docx>=1.1
 langdetect>=1.0.9
 gradio>=4.40
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
