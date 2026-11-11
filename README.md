@@ -1,5 +1,7 @@
 # Manual RAG Assistant
 
+[![CI](https://github.com/jasferdavidgabriel/manual_rag_assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/jasferdavidgabriel/manual_rag_assistant/actions/workflows/ci.yml)
+
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -169,12 +171,32 @@ pip install pytest && python -m pytest tests -q
 
 All settings (models, chunk size, top k, page limits, the reasoning switch) live in [`configs/config.yaml`](configs/config.yaml). Any OpenAI compatible endpoint works by changing `llm.base_url` and `llm.model`.
 
+## Run with Docker
+
+The image bundles Python, Tesseract OCR, CPU PyTorch, the embedding model and the code, so nothing else needs installing. Your API key stays out of the image and is passed in at run time with `--env-file`.
+
+```bash
+docker build -t manual-rag .
+
+# Web app at http://localhost:7860
+docker run --rm -p 7860:7860 --env-file .env manual-rag
+
+# Command line
+docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ingest
+docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
+```
+
+Every push runs the 82 unit tests on GitHub Actions, then builds this image and checks that it starts.
+
 ## Project structure
 
 ```
 manual_rag_assistant/
 ├── app.py                    # Gradio web app (one manual per session)
 ├── main.py                   # CLI: ingest, list, search, ask, chat, evaluate
+├── Dockerfile                   # web app + CLI image (CPU only)
+├── .dockerignore                # keeps .env and data out of the image
+├── .github/workflows/ci.yml     # tests + Docker build on every push
 ├── configs/config.yaml       # every tunable setting
 ├── src/manual_rag/
 │   ├── ingestion.py          # extraction per format, cleaning, chunking, labels
