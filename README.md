@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-95%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -114,6 +114,30 @@ Every change was measured against the same evaluation set. Not everything worked
 | 9 | Reasoning makes answers slow (~28s). Tested 4 ways to turn it off on one question | Only `enable_thinking: false` worked: **27.8s → 4.1s**. `/no_think` and "low effort" were ignored by this model |
 | 10 | With reasoning off, a two-manual answer cited a coffee maker fact under the microwave | Code now groups chunks by manual before the LLM sees them. Regression test with the real case |
 | 11 | With reasoning off, the product title for a scanned cover was guessed ("12-Cup Programmable" for a 4-cup model) | Reasoning kept on for the one-time title step only, and the prompt forbids guessing model numbers |
+| 12 | Chunk size matters: try 15 and 45 lines per chunk instead of 30 (`max_lines_per_chunk`, tracked in MLflow) | **No effect.** Identical scores at 15, 30 and 45. The chunker cuts at section headings first and almost every section is under 30 lines, so 45 produced exactly the same 99 chunks and 15 added only 7. The line limit is a safety cap; the manual's own structure decides the chunks |
+
+## Experiment tracking with MLflow
+
+Every `evaluate` run is logged to MLflow with the settings that produced it (chunking, embedding model, retrieval), its scores (Hit@1/3/5/10, MRR, misses, in both search modes) and its report files. Runs can then be compared side by side, so every result in the experiment log above is reproducible rather than copied by hand.
+
+```bash
+pip install -r requirements-experiments.txt
+python main.py evaluate --run-name "headers off" --note "chunks embedded without product title"
+mlflow ui --backend-store-uri sqlite:///mlflow.db   # then open http://127.0.0.1:5000
+```
+
+Comparing the baseline with contextual headers turned off: across all the logged settings, exactly one parameter differs, and Hit@1, Hit@5 and MRR all drop with it.
+
+![MLflow comparison of the baseline and headers off runs](reports/figures/mlflow_compare.png)
+
+| Run | Changed setting | Hit@1 within / across | Hit@5 across | MRR within / across |
+|---|---|---|---|---|
+| baseline | contextual headers on, 30 lines per chunk | **0.94** / **0.94** | **1.00** | **0.96** / **0.96** |
+| headers off | `contextual_headers: false` | 0.85 / 0.82 | 0.94 | 0.90 / 0.89 |
+| chunks 15 lines | `max_lines_per_chunk: 15` | 0.94 / 0.94 | 1.00 | 0.96 / 0.96 |
+| chunks 45 lines | `max_lines_per_chunk: 45` | 0.94 / 0.94 | 1.00 | 0.96 / 0.96 |
+
+The `--no-track` flag skips logging for a quick check, and evaluation still works without MLflow installed (it just prints a warning), so the app, Docker image and CI don't depend on it.
 
 ## Why RAG instead of pasting the whole manual into an LLM?
 
@@ -186,7 +210,7 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 95 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 101 unit tests on GitHub Actions, then builds this image and checks that it starts.
 
 ## Use the REST API
 
@@ -260,15 +284,16 @@ manual_rag_assistant/
 │   ├── evaluation.py         # Hit@k, MRR, charts
 │   ├── pipeline.py           # ingest / ask / evaluate / ad hoc file handling
 │   ├── api.py                # REST API (FastAPI)
+│   ├── tracking.py           # MLflow experiment tracking
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 95 unit tests, no GPU, model or API key needed
+├── tests/                    # 101 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```
 
 ## Tech stack
 
-Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · FastAPI · pytest · GitHub Actions · Docker
+Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · FastAPI · MLflow · pytest · GitHub Actions · Docker
 
 ## Known limitations
 
