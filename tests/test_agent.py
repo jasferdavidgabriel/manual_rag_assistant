@@ -62,7 +62,7 @@ class ScriptedClient:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def create(self, **kwargs):
-        self.requests.append(kwargs)
+        self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
         if kwargs["model"] in self.fail_models:
             raise TimeoutError("overloaded")
         return self.replies.pop(0)
@@ -144,11 +144,12 @@ def test_stops_after_max_steps_and_forces_an_answer():
 
 
 def test_falls_back_to_the_next_model():
-    a, client, _ = make_agent([reply(content="Answered by the backup.")],
+    a, client, _ = make_agent([reply(calls=[tool_call("search_manual", {"query": "hi"})]),
+                               reply(content="Answered by the backup.")],
                               fail_models={"main-model"})
     result = a.run("Hi")
     assert result.model == "backup-model"
-    assert [r["model"] for r in client.requests] == ["main-model", "backup-model"]
+    assert [r["model"] for r in client.requests][:2] == ["main-model", "backup-model"]
 
 
 def test_all_models_failing_raises():
@@ -162,3 +163,31 @@ def test_format_hits():
     text = agent_mod.format_hits([hit(6, "Descaling", text="x" * 900)], preview_chars=100)
     assert text.startswith("[1] manual: mr_coffee_nl4.pdf (Mr. Coffee 4-cup coffee maker) | page 6")
     assert text.endswith("x" * 100 + "...")
+
+
+def test_lists_available_manuals_in_the_first_message():
+    a, client, _ = make_agent([reply(calls=[tool_call("search_manual", {"query": "x"})]),
+                               reply(content="Done.")])
+    a.run("Which has the longer warranty?")
+    first = client.requests[0]["messages"][1]["content"]
+    assert "Available manuals:" in first
+    assert "- ge_microwave_jvm3160.pdf: GE JVM3160 microwave oven" in first
+
+
+def test_nudges_a_model_that_doesnt_search():
+    a, client, retriever = make_agent([
+        reply(content="I don't know which manuals exist. Let me list them first."),
+        reply(calls=[tool_call("search_manual", {"query": "warranty"})]),
+        reply(content="One year (mr_coffee_nl4.pdf, page 9, Warranty)."),
+    ])
+    result = a.run("How long is the warranty?")
+    assert result.answer.startswith("One year")
+    assert len(result.steps) == 1 and retriever.calls[0][0] == "warranty"
+    assert client.requests[1]["messages"][-1] == {"role": "user", "content": agent_mod.NUDGE}
+
+
+def test_nudges_only_once():
+    a, client, _ = make_agent([reply(content="I won't search."), reply(content="Still no.")])
+    result = a.run("Hi")
+    assert result.answer == "Still no."
+    assert len(client.requests) == 2

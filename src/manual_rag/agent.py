@@ -33,6 +33,9 @@ Rules:
 - Cite every fact as (manual, page N, section).
 - Keep the answer short and practical; use numbered steps for procedures."""
 
+NUDGE = ("Don't describe what you will do. Call search_manual now: answers must come "
+         "from the manuals, not from memory.")
+
 TOOLS = [
     {
         "type": "function",
@@ -178,16 +181,30 @@ class Agent:
         manual, if given, is the default manual for searches that don't name one.
         """
         intro = question if not manual else f"{question}\n\n(The user's current manual is {manual}.)"
+        try:  # tell the model up front which manuals exist, saving a tool round
+            available = self.manuals()
+        except Exception as exc:
+            logger.warning("Could not list manuals: %s", exc)
+            available = {}
+        if available:
+            intro += "\n\nAvailable manuals:\n" + "\n".join(f"- {n}: {t}" for n, t in available.items())
         messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT},
                                           {"role": "user", "content": intro}]
         steps: list[Step] = []
         seen: list = []
         model = ""
+        nudged = False
 
         for _ in range(self.max_steps):
             response, model = self._complete(messages, TOOLS)
             msg = response.choices[0].message
             calls = msg.tool_calls or []
+            if not calls and not steps and not nudged:
+                # It answered (or said what it would do) without searching: push it once
+                messages.append({"role": "assistant", "content": msg.content or ""})
+                messages.append({"role": "user", "content": NUDGE})
+                nudged = True
+                continue
             if not calls:
                 return AgentResult(answer=(msg.content or "").strip(), model=model,
                                    steps=steps, hits=_unique(seen))
