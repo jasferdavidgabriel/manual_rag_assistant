@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-133%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-138%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -119,6 +119,7 @@ Every change was measured against the same evaluation set. Not everything worked
 | 14 | A pretrained cross encoder beats similarity ranking | **Not as is.** Across manuals it dropped to 0.82 Hit@1: reading only the chunk, it couldn't tell products apart |
 | 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, by one question). Kept as the leading option for a larger library |
 | 16 | A tool calling agent (the model decides when and what to search) finds answers more reliably than one fixed search | **Not measurable on this eval set.** With no manual hint it found the right page for 34/34 (1.65 searches, 2.65 model calls, 2.7 s per question), but one plain search already finds 34/34 in its top 5. Its strengths (comparisons, a second search after a vague first one) need new eval questions |
+| 17 | On comparison, vague and ambiguous questions (9 new, `hard_questions.jsonl`), the agent beats one fixed search | **Yes.** Found 9/9 against 7/9; every manual a question names was found 100% against 78%. For "glass pot" it searched again for "decanter", then for the model number it saw in the results. Small set, written by the author |
 
 ## Experiment tracking with MLflow
 
@@ -219,7 +220,36 @@ For a vague question ("My coffee maker is brewing really slowly"), it searched w
 | Seconds per question | 2.7 |
 | Errors | 0 |
 
-The agent is reliable, but on this eval set it can't beat a single search, because a single search already finds every answer in its top 5. The questions are single facts, where a fixed pipeline does well; the agent's strengths, comparing manuals and searching again after a vague first try, aren't in the eval set yet. The one uncited answer was "What does the warranty cover and for how long?": with no product named, the agent sensibly searched both manuals and described both warranties, but didn't give page numbers. Adding comparison and vague questions to the eval set is the natural next step.
+The agent is reliable, but on this eval set it can't beat a single search, because a single search already finds every answer in its top 5. The questions are single facts, where a fixed pipeline does well; the agent's strengths, comparing manuals and searching again after a vague first try, aren't in the eval set yet. The one uncited answer was "What does the warranty cover and for how long?": with no product named, the agent sensibly searched both manuals and described both warranties, but didn't give page numbers. Comparison and vague questions were then added; see below.
+
+### Harder questions
+
+To test the agent where a fixed pipeline should struggle, 9 questions were added in `data/eval/hard_questions.jsonl`, each checked against the PDFs (the key word appears on every expected page):
+
+- **Comparison** (2): need both manuals; found only if the right page from each manual turns up.
+- **Vague** (5): worded the way a user would say it, not the way the manual does ("the glass pot" instead of "decanter").
+- **Ambiguous** (2): no product named; either manual counts, and the run also records whether both were covered.
+
+```bash
+python main.py agent-eval --questions data/eval/hard_questions.jsonl
+```
+
+| Question type | Agent | One plain search, top 5 |
+|---|---|---|
+| Comparison (2) | **2/2** | 1/2 |
+| Vague (5) | **5/5** | 4/5 |
+| Ambiguous (2) | 2/2 | 2/2 |
+| Every manual a question names was found | **100%** | 78% |
+| **Overall** | **9/9** | 7/9 |
+
+The agent used 2.3 searches, 3.3 model calls and 3.7 seconds per question. The two questions a single search missed show why it helps:
+
+- "Which has the longer warranty, the microwave or the coffee maker?": one search returned sections from one manual only; the agent searched each manual separately.
+- "I broke the glass pot of my coffee maker. Where can I get another one?": the manual says "decanter", not "glass pot". The agent searched for the glass pot, then for "replacement decanter", then for the decanter's model number (ND4), which it had picked up from the earlier results.
+
+On ambiguous questions the agent covered both products every time. Its one citation gap was on "How do I clean the microwave and the coffee maker?", where it found both manuals' cleaning pages but didn't give a page number for each.
+
+Two caveats: 9 questions is a small set, so the gap (two questions) shows a direction rather than a precise size; and the questions were written by the system's author, one of them after trying it by hand. Questions written by someone else would be a fairer test.
 
 ## Why RAG instead of pasting the whole manual into an LLM?
 
@@ -292,7 +322,7 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 133 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 138 unit tests on GitHub Actions, then builds this image and checks that it starts.
 
 ## Use the REST API
 
@@ -373,7 +403,7 @@ manual_rag_assistant/
 │   ├── agent.py              # tool calling agent
 │   ├── agent_eval.py         # agent evaluation
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 133 unit tests, no GPU, model or API key needed
+├── tests/                    # 138 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```
