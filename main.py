@@ -118,6 +118,10 @@ def main() -> None:
     p_rr.add_argument("--note", help="Free text note saved with the MLflow run.")
     p_rr.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
 
+    p_ag = sub.add_parser("agent", help="Answer with a tool calling agent that decides when to search.")
+    p_ag.add_argument("question")
+    p_ag.add_argument("--manual", help="Default manual for searches that don't name one.")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -181,6 +185,19 @@ def run(cfg, args) -> None:
                 break
             answer = pipeline.ask(cfg, question, manual=manual, retriever=retriever)
             print_answer(answer, display_k, args.show_reasoning)
+    elif args.command == "agent":
+        from manual_rag.agent import Agent
+
+        result = Agent(cfg).run(args.question, manual=args.manual)
+        print("Steps:")
+        for i, step in enumerate(result.steps, start=1):
+            shown = ", ".join(f"{k}={v!r}" for k, v in step.arguments.items())
+            print(f"  {i}. {step.tool}({shown})")
+        if not result.steps:
+            print("  (no tools used)")
+        print(f"\n{result.answer}\n")
+        print(f"Answered by {result.model} after {len(result.steps)} tool call(s), "
+              f"looking at {len(result.hits)} sections.")
     elif args.command == "rerank":
         result = rerank.run(cfg, k=args.k, n_splits=args.folds, across=args.across,
                             cross_encoder=not args.no_cross_encoder,
