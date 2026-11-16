@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-114%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-130%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -118,6 +118,7 @@ Every change was measured against the same evaluation set. Not everything worked
 | 13 | A learned reranker (logistic regression on similarity, rank and word overlap features, 5 fold GroupKFold so no question appears in both training and testing) beats similarity ranking | **No.** Hit@1 0.94 to 0.91 in both modes (one question). Similarity is near the ceiling on this eval set |
 | 14 | A pretrained cross encoder beats similarity ranking | **Not as is.** Across manuals it dropped to 0.82 Hit@1: reading only the chunk, it couldn't tell products apart |
 | 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, by one question). Kept as the leading option for a larger library |
+| 16 | A tool calling agent (the model decides when and what to search) finds answers more reliably than one fixed search | **Not measurable on this eval set.** With no manual hint it found the right page for 34/34 (1.65 searches, 2.65 model calls, 2.7 s per question), but one plain search already finds 34/34 in its top 5. Its strengths (comparisons, a second search after a vague first one) need new eval questions |
 
 ## Experiment tracking with MLflow
 
@@ -172,6 +173,53 @@ What the runs showed:
 - **With the product name, the cross encoder ties similarity on Hit@1 and edges ahead on Hit@3 and MRR**, by one question. On 34 questions that's promising but not conclusive, and it adds latency to every question, so the app keeps similarity ranking for now. The cross encoder is the leading candidate once the library grows (Mode 2), where many chunks will look alike.
 
 All runs are tracked in MLflow; per fold results and the learned weights are saved to `reports/rerank_cv.json`.
+
+
+## Agent with tool calling
+
+The regular pipeline always does the same thing: one search, then one answer. The agent instead gives the language model two tools and lets it decide what to do, in a loop, until it can answer:
+
+- `search_manual(query, manual)`: the top 5 sections, each with manual, page, section and line numbers
+- `list_manuals()`: which manuals are indexed
+
+The model only asks for a tool; the code runs it on the same retriever and sends the result back. It runs on the same free NVIDIA endpoint and models (both were checked to support tool calling), with the same fallback order.
+
+```bash
+python main.py agent "Which has the longer warranty, the microwave or the coffee maker?"
+python main.py agent-eval            # score it on the 34 labelled questions
+```
+
+A comparison question, which one fixed search handles poorly:
+
+```text
+Steps:
+  1. search_manual(query='warranty', manual='ge_microwave_jvm3160.pdf')
+  2. search_manual(query='warranty', manual='mr_coffee_nl4.pdf')
+
+Microwave (GE JVM3160): one year limited warranty covering parts, labor and related
+service costs (page 21, Limited Warranty).
+Coffee maker (Mr. Coffee NL4): one year limited warranty from Sunbeam covering defects
+in material or workmanship (page 9, 1-Year Limited Warranty).
+Both products have the same warranty length: one year.
+```
+
+For a vague question ("My coffee maker is brewing really slowly"), it searched with the user's words, saw the results point to mineral buildup, searched again for descaling, and answered with the vinegar procedure and the cleaning interval.
+
+**Safeguards**, each added after testing: the manuals are listed in the first message (the first version said "let me list the manuals first" in plain text and stopped, without ever calling the tool); if the model replies without searching, it is told once to call `search_manual`; at most 6 tool rounds, then it must answer from what it has; malformed tool calls are reported back to the model instead of crashing; and a failing model falls back to the next one.
+
+**Evaluation** on the 34 labelled questions, with no manual hint, so the agent has to decide where to search:
+
+| | Result |
+|---|---|
+| Found the right page (any section it looked at) | **34/34** |
+| Cited the right page in its answer | 33/34 |
+| One plain search across all manuals, top 5 (reference) | 34/34 |
+| Searches per question | 1.65 |
+| Model calls per question | 2.65 |
+| Seconds per question | 2.7 |
+| Errors | 0 |
+
+The agent is reliable, but on this eval set it can't beat a single search, because a single search already finds every answer in its top 5. The questions are single facts, where a fixed pipeline does well; the agent's strengths, comparing manuals and searching again after a vague first try, aren't in the eval set yet. The one uncited answer was "What does the warranty cover and for how long?": with no product named, the agent sensibly searched both manuals and described both warranties, but didn't give page numbers. Adding comparison and vague questions to the eval set is the natural next step.
 
 ## Why RAG instead of pasting the whole manual into an LLM?
 
@@ -244,7 +292,7 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 114 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 130 unit tests on GitHub Actions, then builds this image and checks that it starts.
 
 ## Use the REST API
 
@@ -320,8 +368,10 @@ manual_rag_assistant/
 │   ├── api.py                # REST API (FastAPI)
 │   ├── tracking.py           # MLflow experiment tracking
 │   ├── rerank.py             # learned reranker + cross encoder comparison
+│   ├── agent.py              # tool calling agent
+│   ├── agent_eval.py         # agent evaluation
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 114 unit tests, no GPU, model or API key needed
+├── tests/                    # 130 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```
