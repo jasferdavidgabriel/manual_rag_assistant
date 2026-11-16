@@ -11,6 +11,7 @@ Then open http://127.0.0.1:8000/docs to try every endpoint in the browser.
 """
 
 import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -41,6 +42,43 @@ _lock = threading.Lock()  # uploads change the shared index, so one at a time
 
 UNSUPPORTED = "Unsupported file type. Use PDF, Word (.docx), EPUB, XPS, .txt or .md."
 NO_MANUAL = "No manual uploaded yet. POST one to /manuals first."
+
+LABEL_RE = re.compile(r"^\s*\*\*([^*\n]+?)(?::\*\*|\*\*:)\s*(.*)$")
+
+
+def plain_answer(text: str) -> str:
+    """The model's Markdown answer as plain text, for apps calling the API.
+
+    Drops the "Location in Manual" block (the sources list already carries
+    it), the "Answer:" label, bold markers and heading marks. Other labels,
+    like "Steps:", are kept as plain words.
+    """
+    out, skipping = [], False
+    for line in (text or "").splitlines():
+        if skipping:
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("- ", "* ", "\u2022")):
+                continue  # still inside the location list
+            skipping = False
+        m = LABEL_RE.match(line)
+        if m:
+            label, rest = m.group(1).strip(), m.group(2).strip()
+            if label.lower().startswith("location"):
+                skipping = True
+                continue
+            if label.lower() == "answer":
+                if rest:
+                    out.append(rest)
+                continue
+            out.append(f"{label}:" + (f" {rest}" if rest else ""))
+            continue
+        out.append(line)
+    text = "\n".join(out)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?m)^#{1,6}\s*", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def get_cfg() -> Config:
@@ -80,7 +118,8 @@ class AskRequest(BaseModel):
 
 
 class AskResponse(BaseModel):
-    answer: str
+    answer: str = Field(..., description="Plain text answer.")
+    answer_markdown: str = Field(..., description="The same answer as formatted for the web app.")
     manual: str
     model: str
     sources: list[Source]
@@ -192,7 +231,8 @@ def ask_question(req: AskRequest) -> AskResponse:
 
     display_k = cfg.section("retrieval").get("display_k", 5)
     return AskResponse(
-        answer=answer.answer,
+        answer=plain_answer(answer.answer),
+        answer_markdown=answer.answer,
         manual=manual,
         model=answer.model or "",
         sources=[

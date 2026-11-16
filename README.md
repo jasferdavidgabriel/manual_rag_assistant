@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-130%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-133%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -292,7 +292,7 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 130 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 133 unit tests on GitHub Actions, then builds this image and checks that it starts.
 
 ## Use the REST API
 
@@ -346,6 +346,8 @@ curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
 }
 ```
 
+The `answer` field is plain text, ready for other apps to display; `answer_markdown` keeps the formatted version the web app shows. Citations are in `sources`.
+
 Errors use meaningful status codes: `415` unsupported file type, `413` file too large, `422` rejected upload (too many pages, mostly images, unreadable) or blank question, `404` unknown manual, `409` no manual uploaded yet, `502` the language model failed. Uploads are checked in a temporary folder first, so a rejected file never replaces a manual that is already indexed.
 
 ## Project structure
@@ -371,7 +373,7 @@ manual_rag_assistant/
 │   ├── agent.py              # tool calling agent
 │   ├── agent_eval.py         # agent evaluation
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 130 unit tests, no GPU, model or API key needed
+├── tests/                    # 133 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```

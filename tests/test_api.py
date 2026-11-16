@@ -75,6 +75,7 @@ def test_ask_answers_with_cited_sources(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["answer"] == "Hold Cancel/Off for 3 seconds."
+    assert body["answer_markdown"] == "Hold Cancel/Off for 3 seconds."
     assert body["manual"] == "microwave.pdf"
     assert body["model"] == "nemotron"
     assert len(body["sources"]) == 2  # capped at display_k
@@ -179,3 +180,45 @@ def test_upload_cleans_up_when_indexing_fails(client, monkeypatch, tmp_path):
     assert r.status_code == 422
     assert "bad xref" in r.json()["detail"]
     assert not (tmp_path / "documents" / "broken.pdf").exists()
+
+
+# ---------- plain text answers ----------
+
+MARKDOWN_ANSWER = (
+    "**Answer:** To lock the controls, press and hold Cancel/Off for about three seconds.\n\n"
+    "**Location in Manual:**\n"
+    "- Manual: ge_microwave_jvm3160.pdf (GE JVM3160 microwave oven)\n"
+    "- Page: 13\n"
+    "- Section: Control Lock-Out\n\n"
+    "**Steps:**\n"
+    "1. Press and hold **Cancel/Off** for about three seconds."
+)
+
+
+def test_plain_answer_drops_labels_location_and_bold():
+    assert api.plain_answer(MARKDOWN_ANSWER) == (
+        "To lock the controls, press and hold Cancel/Off for about three seconds.\n\n"
+        "Steps:\n"
+        "1. Press and hold Cancel/Off for about three seconds."
+    )
+
+
+def test_plain_answer_keeps_text_after_the_location_block():
+    text = ("**Answer:** Descale it.\n\n**Location in Manual:**\n- Page: 7\n\n"
+            "If it is still slow, contact __Sunbeam__.\n\n### Notes\nHard water needs more.")
+    assert api.plain_answer(text) == ("Descale it.\n\nIf it is still slow, contact Sunbeam.\n\n"
+                                      "Notes\nHard water needs more.")
+    assert api.plain_answer("Just text.") == "Just text."
+    assert api.plain_answer("**Answer**: yes") == "yes"
+    assert api.plain_answer("") == ""
+
+
+def test_ask_returns_plain_and_markdown_answers(client, monkeypatch):
+    monkeypatch.setattr(api.pipeline, "latest_manual", lambda cfg: "microwave.pdf")
+    monkeypatch.setattr(api.pipeline, "ask", lambda cfg, q, manual=None, retriever=None: Answer(
+        answer=MARKDOWN_ANSWER, reasoning=None, hits=[make_hit(13)], model="nemotron"))
+    body = client.post("/ask", json={"question": "How do I lock the controls?"}).json()
+    assert body["answer"].startswith("To lock the controls")
+    assert "Location in Manual" not in body["answer"] and "**" not in body["answer"]
+    assert body["answer_markdown"] == MARKDOWN_ANSWER
+    assert body["sources"][0]["page"] == 13
