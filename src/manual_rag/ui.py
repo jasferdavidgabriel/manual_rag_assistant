@@ -92,9 +92,9 @@ def format_sources(hits: Sequence[Hit], limit: int = 5, preview_chars: int = 600
 def format_ingest_report(report) -> str:
     """Human friendly summary of an IngestReport."""
     lines = []
-    lines += [f"✅ Added **{name}** ({n} sections indexed)" for name, n in report.indexed.items()]
-    lines += [f"ℹ️ **{name}** was already indexed and hasn't changed" for name in report.skipped]
-    lines += [f"⚠️ **{name}**: no readable text found. If it's a scan, OCR (Tesseract) is needed."
+    lines += [f"Added **{name}** ({n} sections indexed)" for name, n in report.indexed.items()]
+    lines += [f"**{name}** was already indexed and hasn't changed" for name in report.skipped]
+    lines += [f"Warning: **{name}**: no readable text found. If it's a scan, OCR (Tesseract) is needed."
               for name in report.empty]
-    lines += [f"❌ **{name}** failed: {err}" for name, err in report.failed.items()]
+    lines += [f"Error: **{name}** failed: {err}" for name, err in report.failed.items()]
     return "\n\n".join(lines) or "Nothing to add."

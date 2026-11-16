@@ -150,3 +150,13 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     assert result["settings"]["mode"] == "within_manual"
     assert result["settings"]["cross_encoder"] == "none"
     assert (tmp_path / "results_dir" / "rerank_cv.json").exists()
+
+
+def test_cross_encoder_text_includes_product_name():
+    h = Hit(text="One year limited warranty.", page=9, section="Warranty", start_line=1,
+            end_line=2, similarity=0.5, source="c.pdf", manual_title="Mr. Coffee 4-cup coffee maker")
+    assert rerank.cross_encoder_text(h) == (
+        "Mr. Coffee 4-cup coffee maker. Warranty\nOne year limited warranty.")
+    assert rerank.cross_encoder_text(h, with_title=False) == "Warranty\nOne year limited warranty."
+    h.manual_title = ""
+    assert rerank.cross_encoder_text(h) == "Warranty\nOne year limited warranty."

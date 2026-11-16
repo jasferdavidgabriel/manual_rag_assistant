@@ -53,7 +53,7 @@ The manual does not cover this.
 | How documents get in | Upload in the web app, or `--file` on the CLI | Bulk ingest a folder: `ingest --path docs/` |
 | What gets searched | Only that manual | The whole library, or filtered by manual |
 | Limits | 50 pages, text based (keeps the demo fast and cheap) | No page limit for curated ingestion |
-| Status | ✅ Working end to end | ✅ Folder ingest, incremental re-indexing, per-manual citations, cross-manual evaluation. See the roadmap for what scale needs. |
+| Status | Working end to end | Folder ingest, incremental re-indexing, per-manual citations, cross-manual evaluation. See the roadmap for what scale needs. |
 
 ## How it works
 

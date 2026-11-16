@@ -180,7 +180,18 @@ def cross_validate(rows: Sequence[dict], n_splits: int = 5) -> dict[str, Any]:
 CROSS_ENCODER = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
-def cross_encoder_scorer(model_name: str = CROSS_ENCODER, device: str | None = None):
+def cross_encoder_text(h, with_title: bool = True) -> str:
+    """What the cross encoder reads for one chunk.
+
+    with_title=True starts with the product name, like the contextual headers
+    the embedding search uses, so the model can tell manuals apart.
+    """
+    body = f"{h.section}\n{h.text}"
+    return f"{h.manual_title}. {body}" if with_title and h.manual_title else body
+
+
+def cross_encoder_scorer(model_name: str = CROSS_ENCODER, device: str | None = None,
+                         with_title: bool = True):
     """A free pretrained reranker that reads the question and chunk together.
 
     Unlike the embedding model, which encodes question and chunk separately,
@@ -192,14 +203,14 @@ def cross_encoder_scorer(model_name: str = CROSS_ENCODER, device: str | None = N
     model = CrossEncoder(model_name, device=device)
 
     def score(question: str, hits: Sequence) -> list[float]:
-        pairs = [(question, f"{h.section}\n{h.text}") for h in hits]
+        pairs = [(question, cross_encoder_text(h, with_title)) for h in hits]
         return [float(x) for x in model.predict(pairs)] if pairs else []
 
     return score
 
 
 def run(cfg, k: int = 10, n_splits: int = 5, across: bool = False,
-        cross_encoder: bool = True) -> dict[str, Any]:
+        cross_encoder: bool = True, ce_title: bool = True) -> dict[str, Any]:
     """Run the comparison on the indexed manuals and the labelled questions.
 
     Saves reports/rerank_cv.json and returns the result, including the
@@ -216,7 +227,7 @@ def run(cfg, k: int = 10, n_splits: int = 5, across: bool = False,
     if not records:
         raise RuntimeError("No eval questions match the indexed manuals.")
 
-    scorer = cross_encoder_scorer() if cross_encoder else None
+    scorer = cross_encoder_scorer(with_title=ce_title) if cross_encoder else None
     rows = build_dataset(retriever, records, k=k, across=across, scorer=scorer)
     result = cross_validate(rows, n_splits)
     result["settings"] = {
@@ -225,6 +236,7 @@ def run(cfg, k: int = 10, n_splits: int = 5, across: bool = False,
         "mode": "all_manuals" if across else "within_manual",
         "model": "logistic_regression",
         "cross_encoder": CROSS_ENCODER if cross_encoder else "none",
+        "cross_encoder_title": bool(cross_encoder and ce_title),
     }
 
     out = cfg.path("results_dir") / "rerank_cv.json"

@@ -58,18 +58,18 @@ def load_manual(file_path: str | None):
 
     name = safe_filename(Path(file_path).name)
     if not is_supported(name):
-        return ("❌ That file type isn't supported. Please upload a PDF, Word (.docx), "
+        return ("Error: That file type isn't supported. Please upload a PDF, Word (.docx), "
                 "EPUB, XPS, .txt or .md manual."), None, locked
 
     try:
         info = inspect_document(file_path)
     except Exception as exc:
         logger.exception("Could not open upload")
-        return f"❌ Couldn't open that file: `{exc}`", None, locked
+        return f"Error: Couldn't open that file: `{exc}`", None, locked
     problem = validate_upload(info, MAX_PAGES, MIN_CHARS_PER_PAGE)
     if problem:
         logger.info("Rejected %s: %s", name, problem)
-        return f"❌ {problem}", None, locked
+        return f"Error: {problem}", None, locked
 
     dest = cfg.path("documents") / name
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -79,13 +79,13 @@ def load_manual(file_path: str | None):
     _retriever = None  # the index changed
 
     if name in report.failed:
-        return f"❌ Couldn't read **{name}**: {report.failed[name]}", None, locked
+        return f"Error: Couldn't read **{name}**: {report.failed[name]}", None, locked
     if name in report.empty:
-        return "❌ No readable text was found in this manual.", None, locked
+        return "Error: No readable text was found in this manual.", None, locked
 
     title = pipeline.manual_title(cfg, name) or name
     sections = report.indexed.get(name) or pipeline.manuals(cfg).get(name, 0)
-    status = f"✅ Ready: **{title}**\n\n{info.pages} pages · {sections} sections. Ask away!"
+    status = f"Ready: **{title}**\n\n{info.pages} pages · {sections} sections. Ask away!"
     return status, name, gr.Button(interactive=True)
 
 
@@ -108,7 +108,7 @@ def answer_question(question: str, manual: str | None):
         answer = pipeline.ask(cfg, question.strip(), manual=manual, retriever=get_retriever())
     except Exception as exc:  # show the problem on the page, not only in the logs
         logger.exception("Question failed")
-        yield f"❌ Something went wrong: `{type(exc).__name__}: {exc}`", ""
+        yield f"Error: Something went wrong: `{type(exc).__name__}: {exc}`", ""
         return
     logger.info("Answered by %s", answer.model)
     footer = f"\n\n<sub>Answered by {answer.model}</sub>" if answer.model else ""
@@ -120,7 +120,7 @@ def build_app() -> gr.Blocks:
         current_manual = gr.State(None)  # per visitor: the manual they uploaded
 
         gr.Markdown(
-            "# 📘 Manual Assistant\n"
+            "# Manual Assistant\n"
             "Upload an instruction manual and ask questions in plain English. "
             "Answers come only from your manual and show the page they came from.\n\n"
             f"<sub>Text based manuals up to {MAX_PAGES} pages: PDF, Word, EPUB, XPS or text.</sub>"

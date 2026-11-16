@@ -112,6 +112,8 @@ def main() -> None:
     p_rr.add_argument("--folds", type=int, default=5, help="Number of GroupKFold folds (default 5).")
     p_rr.add_argument("--across", action="store_true", help="Search all manuals, not each question's own.")
     p_rr.add_argument("--no-cross-encoder", action="store_true", help="Skip the cross encoder comparison.")
+    p_rr.add_argument("--ce-no-title", action="store_true",
+                      help="Don't show the cross encoder the product name (the original setup).")
     p_rr.add_argument("--run-name", help="Name for this MLflow run.")
     p_rr.add_argument("--note", help="Free text note saved with the MLflow run.")
     p_rr.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
@@ -134,7 +136,7 @@ def main() -> None:
     try:
         run(cfg, args)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        print(f"❌ {exc}")
+        print(f"Error: {exc}")
         sys.exit(1)
 
 
@@ -181,15 +183,16 @@ def run(cfg, args) -> None:
             print_answer(answer, display_k, args.show_reasoning)
     elif args.command == "rerank":
         result = rerank.run(cfg, k=args.k, n_splits=args.folds, across=args.across,
-                            cross_encoder=not args.no_cross_encoder)
+                            cross_encoder=not args.no_cross_encoder,
+                            ce_title=not args.ce_no_title)
         if not args.no_track:
             try:
                 run_id = tracking.log_rerank(
                     cfg, result, run_name=args.run_name,
                     tags={"note": args.note} if args.note else None)
-                print(f"📈 Logged to MLflow (run {run_id[:8]}).\n")
+                print(f"Logged to MLflow (run {run_id[:8]}).\n")
             except RuntimeError as exc:
-                print(f"⚠️  Not tracked in MLflow: {exc}\n")
+                print(f"Warning: Not tracked in MLflow: {exc}\n")
         s = result["settings"]
         print(f"Reranking the top {s['k']} chunks for {result['questions']} questions "
               f"({s['mode']}), {result['n_splits']}-fold GroupKFold\n")
@@ -215,10 +218,10 @@ def run(cfg, args) -> None:
                 run_id = tracking.log_evaluation(
                     cfg, result, run_name=args.run_name,
                     tags={"note": args.note} if args.note else None)
-                print(f"📈 Logged to MLflow (run {run_id[:8]}). "
+                print(f"Logged to MLflow (run {run_id[:8]}). "
                       "View with: mlflow ui --backend-store-uri sqlite:///mlflow.db\n")
             except RuntimeError as exc:  # MLflow not installed: still show the scores
-                print(f"⚠️  Not tracked in MLflow: {exc}\n")
+                print(f"Warning: Not tracked in MLflow: {exc}\n")
         print(f"Manuals indexed: {', '.join(result['manuals'])}")
         for mode, title in (("within_manual", "Search within each question's manual"),
                             ("all_manuals", "Search across ALL manuals (right manual + page)")):
