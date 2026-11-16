@@ -119,7 +119,7 @@ Every change was measured against the same evaluation set. Not everything worked
 | 14 | A pretrained cross encoder beats similarity ranking | **Not as is.** Across manuals it dropped to 0.82 Hit@1: reading only the chunk, it couldn't tell products apart |
 | 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, by one question). Kept as the leading option for a larger library |
 | 16 | A tool calling agent (the model decides when and what to search) finds answers more reliably than one fixed search | **Not measurable on this eval set.** With no manual hint it found the right page for 34/34 (1.65 searches, 2.65 model calls, 2.7 s per question), but one plain search already finds 34/34 in its top 5. Its strengths (comparisons, a second search after a vague first one) need new eval questions |
-| 17 | On comparison, vague and ambiguous questions (9 new, `hard_questions.jsonl`), the agent beats one fixed search | **Yes.** Found 9/9 against 7/9; every manual a question names was found 100% against 78%. For "glass pot" it searched again for "decanter", then for the model number it saw in the results. Small set, written by the author |
+| 17 | On comparison, vague and ambiguous questions (9 new, `hard_questions.jsonl`), the agent beats one fixed search | **Yes.** Found 9/9 against 7/9; every manual a question names was found 100% against 78%. For "glass pot" it searched again for "decanter", then for the model number it saw in the results. Small set, written knowing the system |
 
 ## Experiment tracking with MLflow
 
@@ -249,7 +249,7 @@ The agent used 2.3 searches, 3.3 model calls and 3.7 seconds per question. The t
 
 On ambiguous questions the agent covered both products every time. Its one citation gap was on "How do I clean the microwave and the coffee maker?", where it found both manuals' cleaning pages but didn't give a page number for each.
 
-Two caveats: 9 questions is a small set, so the gap (two questions) shows a direction rather than a precise size; and the questions were written by the system's author, one of them after trying it by hand. Questions written by someone else would be a fairer test.
+Two caveats: 9 questions is a small set, so the gap (two questions) shows a direction rather than a precise size; and the questions were drafted with AI assistance by people who knew how the system works, one of them after trying it by hand, then checked against the PDFs. Questions written by someone unfamiliar with the system would be a fairer test.
 
 ## Why RAG instead of pasting the whole manual into an LLM?
 
