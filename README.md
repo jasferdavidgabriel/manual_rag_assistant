@@ -93,13 +93,13 @@ Hit@5 = 1.00 means the right page was always among the 5 chunks the LLM reads.
 ![Retrieval Hit@k within manual](reports/figures/retrieval_hit_at_k.png)
 ![Retrieval Hit@k across manuals](reports/figures/retrieval_hit_at_k_all_manuals.png)
 
-**Answer behaviour checks** (run after every prompt or model change): real steps kept word for word (bulb replacement), no invented steps when the manual lists causes (arcing), a clean refusal for out of scope questions (WiFi), and no facts crossing between products when two manuals match (warranty).
+**Answer behaviour checks** (rerun after prompt and model changes): real steps kept word for word (bulb replacement), no invented steps when the manual lists causes (arcing), a clean refusal for out of scope questions (WiFi), and no facts crossing between products when two manuals match (warranty).
 
 **Speed:** about **4 seconds** per answer, down from about 28 seconds (see the experiment log).
 
 ## Experiment log
 
-Every change was measured against the same evaluation set. Not everything worked, and that's recorded too.
+Retrieval changes were measured against the same evaluation set; answer behaviour fixes were checked on the real failing case and locked in with a regression test. Not everything worked, and that's recorded too.
 
 | # | Hypothesis / change | Result |
 |---|---|---|
@@ -114,16 +114,16 @@ Every change was measured against the same evaluation set. Not everything worked
 | 9 | Reasoning makes answers slow (~28s). Tested 4 ways to turn it off on one question | Only `enable_thinking: false` worked: **27.8s → 4.1s**. `/no_think` and "low effort" were ignored by this model |
 | 10 | With reasoning off, a two-manual answer cited a coffee maker fact under the microwave | Code now groups chunks by manual before the LLM sees them. Regression test with the real case |
 | 11 | With reasoning off, the product title for a scanned cover was guessed ("12-Cup Programmable" for a 4-cup model) | Reasoning kept on for the one-time title step only, and the prompt forbids guessing model numbers |
-| 12 | Chunk size matters: try 15 and 45 lines per chunk instead of 30 (`max_lines_per_chunk`, tracked in MLflow) | **No effect.** Identical scores at 15, 30 and 45. The chunker cuts at section headings first and almost every section is under 30 lines, so 45 produced exactly the same 99 chunks and 15 added only 7. The line limit is a safety cap; the manual's own structure decides the chunks |
+| 12 | Chunk size matters: try 15 and 45 lines per chunk instead of 30 (`max_lines_per_chunk`, tracked in MLflow) | **No effect.** Identical scores at 15, 30 and 45. The chunker cuts at section headings first, and the chunk counts suggest almost every section is under 30 lines, so 45 produced exactly the same 99 chunks and 15 added only 7. The line limit is a safety cap; the manual's own structure decides the chunks |
 | 13 | A learned reranker (logistic regression on similarity, rank and word overlap features, 5 fold GroupKFold so no question appears in both training and testing) beats similarity ranking | **No.** Hit@1 0.94 to 0.91 in both modes (one question). Similarity is near the ceiling on this eval set |
 | 14 | A pretrained cross encoder beats similarity ranking | **Not as is.** Across manuals it dropped to 0.82 Hit@1: reading only the chunk, it couldn't tell products apart |
-| 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, by one question). Kept as the leading option for a larger library |
+| 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, though its lead over similarity is one question at Hit@3). Kept as the leading option for a larger library |
 | 16 | A tool calling agent (the model decides when and what to search) finds answers more reliably than one fixed search | **Not measurable on this eval set.** With no manual hint it found the right page for 34/34 (1.65 searches, 2.65 model calls, 2.7 s per question), but one plain search already finds 34/34 in its top 5. Its strengths (comparisons, a second search after a vague first one) need new eval questions |
 | 17 | On comparison, vague and ambiguous questions (9 new, `hard_questions.jsonl`), the agent beats one fixed search | **Yes.** Found 9/9 against 7/9; every manual a question names was found 100% against 78%. For "glass pot" it searched again for "decanter", then for the model number it saw in the results. Small set, written knowing the system |
 
 ## Experiment tracking with MLflow
 
-Every `evaluate` run is logged to MLflow with the settings that produced it (chunking, embedding model, retrieval), its scores (Hit@1/3/5/10, MRR, misses, in both search modes) and its report files. Runs can then be compared side by side, so every result in the experiment log above is reproducible rather than copied by hand.
+Every `evaluate` run is logged to MLflow with the settings that produced it (chunking, embedding model, retrieval), its scores (Hit@1/3/5/10, MRR, misses, in both search modes) and its report files. Runs can then be compared side by side, so results from this point on come with the exact settings that produced them. Experiment log entries 1 to 11 predate MLflow and were recorded by hand. The four runs below were made in a Colab session whose MLflow database was lost when the session ended; the screenshot and numbers were recorded at the time.
 
 ```bash
 pip install -r requirements-experiments.txt
@@ -131,7 +131,7 @@ python main.py evaluate --run-name "headers off" --note "chunks embedded without
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # then open http://127.0.0.1:5000
 ```
 
-Comparing the baseline with contextual headers turned off: across all the logged settings, exactly one parameter differs, and Hit@1, Hit@5 and MRR all drop with it.
+Comparing the baseline with contextual headers turned off: across all the logged settings, exactly one parameter differs, and Hit@1 and MRR drop in both modes, as does Hit@5 across manuals.
 
 ![MLflow comparison of the baseline and headers off runs](reports/figures/mlflow_compare.png)
 
@@ -170,7 +170,7 @@ python main.py rerank --across --ce-no-title  # cross encoder without the produc
 What the runs showed:
 
 - **The learned reranker didn't beat similarity.** It lost one question in both modes. Its weights were stable across both runs: the strongest signal is closeness to the top similarity score, followed by word overlap with the text and the section title. Similarity, rank and gap to the top measure nearly the same thing, so their individual weights shouldn't be over read.
-- **The cross encoder failed across manuals until it could see the product name.** Reading only the chunk, it couldn't tell a microwave warranty from a coffee maker warranty and lost 4 questions. Prefixing each chunk with its product name recovered all of them. This is the same fix as contextual headers in the embedding search, confirmed independently in a different model. Surprisingly, it also helped within a single manual (0.91 to 0.94), where every chunk carries the same name; a likely reason is that the name gives the model context for short chunks, though one question is too few to be sure.
+- **The cross encoder failed across manuals until it could see the product name.** Reading only the chunk, it couldn't tell a microwave warranty from a coffee maker warranty and lost 4 questions. Prefixing each chunk with its product name recovered all of them. This matches the contextual headers finding in the embedding search, now seen in a different model. Surprisingly, it also helped within a single manual (0.91 to 0.94), where every chunk carries the same name; a likely reason is that the name gives the model context for short chunks, though one question is too few to be sure.
 - **With the product name, the cross encoder ties similarity on Hit@1 and edges ahead on Hit@3 and MRR**, by one question. On 34 questions that's promising but not conclusive, and it adds latency to every question, so the app keeps similarity ranking for now. The cross encoder is the leading candidate once the library grows (Mode 2), where many chunks will look alike.
 
 All runs are tracked in MLflow; per fold results and the learned weights are saved to `reports/rerank_cv.json`.
@@ -190,7 +190,7 @@ python main.py agent "Which has the longer warranty, the microwave or the coffee
 python main.py agent-eval            # score it on the 34 labelled questions
 ```
 
-A comparison question, which one fixed search handles poorly:
+A comparison question, which one fixed search handles poorly (answer shortened):
 
 ```text
 Steps:
@@ -206,7 +206,7 @@ Both products have the same warranty length: one year.
 
 For a vague question ("My coffee maker is brewing really slowly"), it searched with the user's words, saw the results point to mineral buildup, searched again for descaling, and answered with the vinegar procedure and the cleaning interval.
 
-**Safeguards**, each added after testing: the manuals are listed in the first message (the first version said "let me list the manuals first" in plain text and stopped, without ever calling the tool); if the model replies without searching, it is told once to call `search_manual`; at most 6 tool rounds, then it must answer from what it has; malformed tool calls are reported back to the model instead of crashing; and a failing model falls back to the next one.
+**Safeguards**, each added after testing: the manuals are listed in the first message (the first version replied "I don't know which manuals are available yet. Let me list them first." as plain text and stopped, without ever calling the tool); if the model replies without searching, it is told once to call `search_manual`; at most 6 tool rounds, then it must answer from what it has; malformed tool calls are reported back to the model instead of crashing; and a failing model falls back to the next one.
 
 **Evaluation** on the 34 labelled questions, with no manual hint, so the agent has to decide where to search:
 
@@ -224,7 +224,7 @@ The agent is reliable, but on this eval set it can't beat a single search, becau
 
 ### Harder questions
 
-To test the agent where a fixed pipeline should struggle, 9 questions were added in `data/eval/hard_questions.jsonl`, each checked against the PDFs (the key word appears on every expected page):
+To test the agent where a fixed pipeline should struggle, 9 questions were added in `data/eval/hard_questions.jsonl`, each checked against the PDFs (a key word appears on every expected page; for the two cleaning questions, a second page that also answers was added by judgement):
 
 - **Comparison** (2): need both manuals; found only if the right page from each manual turns up.
 - **Vague** (5): worded the way a user would say it, not the way the manual does ("the glass pot" instead of "decanter").
@@ -245,7 +245,7 @@ python main.py agent-eval --questions data/eval/hard_questions.jsonl
 The agent used 2.3 searches, 3.3 model calls and 3.7 seconds per question. The two questions a single search missed show why it helps:
 
 - "Which has the longer warranty, the microwave or the coffee maker?": one search returned sections from one manual only; the agent searched each manual separately.
-- "I broke the glass pot of my coffee maker. Where can I get another one?": the manual says "decanter", not "glass pot". The agent searched for the glass pot, then for "replacement decanter", then for the decanter's model number (ND4), which it had picked up from the earlier results.
+- "I broke the glass pot of my coffee maker. Where can I get another one?": the manual says "decanter", not "glass pot". The agent searched for the glass pot, then for "replacement decanter", then for the decanter's model number (ND4); the question never mentions it, so it most likely came from the earlier results.
 
 On ambiguous questions the agent covered both products every time. Its one citation gap was on "How do I clean the microwave and the coffee maker?", where it found both manuals' cleaning pages but didn't give a page number for each.
 
@@ -269,7 +269,7 @@ cd manual_rag_assistant
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env        # add your NVIDIA_API_KEY (free at build.nvidia.com)
+cp .env.example .env        # add your NVIDIA_API_KEY (free tier at build.nvidia.com)
 # For scanned PDFs: brew install tesseract  (macOS)  or  apt install tesseract-ocr  (Linux)
 ```
 
@@ -302,7 +302,7 @@ python main.py search "error code E3" --all         # retrieval only, no LLM (de
 
 ```bash
 python main.py evaluate      # Hit@k and MRR, within and across manuals; saves charts
-pip install pytest && python -m pytest tests -q
+pip install -r requirements-dev.txt && python -m pytest tests -q
 ```
 
 All settings (models, chunk size, top k, page limits, the reasoning switch) live in [`configs/config.yaml`](configs/config.yaml). Any OpenAI compatible endpoint works by changing `llm.base_url` and `llm.model`.
@@ -359,6 +359,7 @@ curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
 ```json
 {
   "answer": "To lock the controls, press and hold the Cancel/Off button for about three seconds. When the control panel is locked, \u201cLoc\u201d will be displayed briefly anytime a button is pressed. ...",
+  "answer_markdown": "**Answer:** To lock the controls, ... (the same answer, formatted for the web app)",
   "manual": "ge_microwave_jvm3160.pdf",
   "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
   "sources": [
@@ -385,7 +386,7 @@ Errors use meaningful status codes: `415` unsupported file type, `413` file too 
 ```
 manual_rag_assistant/
 ├── app.py                    # Gradio web app (one manual per session)
-├── main.py                   # CLI: ingest, list, search, ask, chat, evaluate
+├── main.py                   # CLI: ingest, list, search, ask, chat, evaluate, rerank, agent, agent-eval
 ├── Dockerfile                   # web app + CLI image (CPU only)
 ├── .dockerignore                # keeps .env and data out of the image
 ├── .github/workflows/ci.yml     # tests + Docker build on every push
@@ -405,6 +406,7 @@ manual_rag_assistant/
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
 ├── tests/                    # 138 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
+├── data/eval/hard_questions.jsonl # 9 comparison, vague and ambiguous questions
 └── reports/figures/          # evaluation charts
 ```
 
@@ -415,8 +417,8 @@ Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect ·
 ## Known limitations
 
 - **Images in the PDF are not processed.** The pipeline reads text only. Diagrams, photos, exploded part views and control panel illustrations are skipped, so a step like "remove the screw shown above" loses its picture, and the assistant can't answer questions about what a figure shows (e.g. "which button is on the left?"). Two partial exceptions: scanned pages are OCR'd into text, and short text labels inside pictures are sometimes captured. Manuals made mostly of images, such as picture-only assembly guides, are rejected by the app for this reason. See the roadmap for the planned fix.
-- **Small evaluation:** 34 questions over 2 manuals, written by the author. Treat the metrics as evidence for the design choices, not as a benchmark.
-- **Part numbers and codes** ("ND4", "JX36BSS") are the weak spot of meaning-based search. This is the one remaining miss in the evaluation.
+- **Small evaluation:** 34 questions over 2 manuals written by the author, plus 9 harder agent questions drafted with AI assistance; all written by people who knew the system. Treat the metrics as evidence for the design choices, not as a benchmark.
+- **Part numbers and codes** ("ND4", "JX36BSS") are the weak spot of meaning-based search. The one evaluation question a single search doesn't rank in its top 3 asks for the replacement carafe's model number.
 - **Local ChromaDB** is single-machine. A process holding the index open while another re-indexes can see stale results (guarded against, not solved).
 - **Word documents** have no fixed pages, so their citations use section and lines only.
 - **The `--share` link** uses your API key for every visitor's questions. It's fine for demos, not for public hosting.
@@ -428,7 +430,7 @@ Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect ·
 | Codes, part numbers, error codes | Hybrid search (BM25 + embeddings) |
 | Many near matches across documents | A cross-encoder reranker over the top 20 |
 | "Only the 2024 service manuals" | Metadata filters (department, product line, version) |
-| Many concurrent users | A server based vector database (pgvector or Qdrant) and an API service (FastAPI) |
+| Many concurrent users | A server based vector database (pgvector or Qdrant) behind the FastAPI service, which already exists |
 | Not everyone should see everything | Authentication and per-document access control |
 | Trustworthy metrics for the domain | An evaluation set built from real user questions, run in CI |
 | Slow OCR on bulk uploads | Background ingestion jobs |
