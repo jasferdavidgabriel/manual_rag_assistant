@@ -122,6 +122,12 @@ def main() -> None:
     p_ag.add_argument("question")
     p_ag.add_argument("--manual", help="Default manual for searches that don't name one.")
 
+    p_ae = sub.add_parser("agent-eval", help="Score the agent on the labelled questions.")
+    p_ae.add_argument("--limit", type=int, help="Only the first N questions (for a quick check).")
+    p_ae.add_argument("--run-name", help="Name for this MLflow run.")
+    p_ae.add_argument("--note", help="Free text note saved with the MLflow run.")
+    p_ae.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -185,6 +191,37 @@ def run(cfg, args) -> None:
                 break
             answer = pipeline.ask(cfg, question, manual=manual, retriever=retriever)
             print_answer(answer, display_k, args.show_reasoning)
+    elif args.command == "agent-eval":
+        from manual_rag import agent_eval
+
+        result = agent_eval.run(cfg, limit=args.limit)
+        if not args.no_track:
+            try:
+                run_id = agent_eval.log_to_mlflow(
+                    cfg, result, run_name=args.run_name,
+                    tags={"note": args.note} if args.note else None)
+                print(f"Logged to MLflow (run {run_id[:8]}).\n")
+            except RuntimeError as exc:
+                print(f"Warning: not tracked in MLflow: {exc}\n")
+        s = result["summary"]
+        n = s["questions"]
+        k = result["settings"]["top_k"]
+        print(f"Agent on {n} questions (no manual hint: it decides where to search)\n")
+        print(f"  found the right page        {round(s['found_rate'] * n)}/{n}  ({s['found_rate']})")
+        print(f"  cited the right page        {round(s['cited_rate'] * n)}/{n}  ({s['cited_rate']})")
+        print(f"  one plain search, top {k}     {round(s['baseline_found_rate'] * n)}/{n}  "
+              f"({s['baseline_found_rate']})")
+        print(f"  searches per question       {s['avg_searches']}")
+        print(f"  model calls per question    {s['avg_model_calls']}")
+        print(f"  seconds per question        {s['avg_seconds']}")
+        print(f"  errors                      {s['errors']}")
+        missed = [r for r in result["per_question"] if not r["found"]]
+        if missed:
+            print("\nNot found by the agent:")
+            for r in missed:
+                note = f"  [error: {r['error']}]" if r["error"] else ""
+                print(f"  - {r['question']}  (expected {r['manual']} page {r['expected_pages']}){note}")
+        print(f"\nSaved {result['saved_to']}")
     elif args.command == "agent":
         from manual_rag.agent import Agent
 

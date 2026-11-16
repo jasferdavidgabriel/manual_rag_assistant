@@ -30,7 +30,8 @@ Rules:
 - Use list_manuals if you need to know which manuals exist.
 - Answer only from the search results. If they don't cover the question, say
   the manual doesn't cover it.
-- Cite every fact as (manual, page N, section).
+- Cite every fact with its file name, page and section, for example
+  (mr_coffee_nl4.pdf, page 9, Warranty).
 - Keep the answer short and practical; use numbered steps for procedures."""
 
 NUDGE = ("Don't describe what you will do. Call search_manual now: answers must come "
@@ -81,6 +82,7 @@ class AgentResult:
     model: str
     steps: list[Step] = field(default_factory=list)
     hits: list = field(default_factory=list)  # every section the agent saw, for citations
+    model_calls: int = 0
 
 
 def format_hits(hits, preview_chars: int = 800) -> str:
@@ -194,9 +196,11 @@ class Agent:
         seen: list = []
         model = ""
         nudged = False
+        calls_made = 0
 
         for _ in range(self.max_steps):
             response, model = self._complete(messages, TOOLS)
+            calls_made += 1
             msg = response.choices[0].message
             calls = msg.tool_calls or []
             if not calls and not steps and not nudged:
@@ -207,7 +211,7 @@ class Agent:
                 continue
             if not calls:
                 return AgentResult(answer=(msg.content or "").strip(), model=model,
-                                   steps=steps, hits=_unique(seen))
+                                   steps=steps, hits=_unique(seen), model_calls=calls_made)
 
             messages.append({
                 "role": "assistant",
@@ -233,7 +237,8 @@ class Agent:
         messages.append({"role": "user", "content": "Answer now using only the results above."})
         response, model = self._complete(messages, None)
         answer = (response.choices[0].message.content or "").strip()
-        return AgentResult(answer=answer, model=model, steps=steps, hits=_unique(seen))
+        return AgentResult(answer=answer, model=model, steps=steps, hits=_unique(seen),
+                           model_calls=calls_made + 1)
 
 
 def _unique(hits: list) -> list:

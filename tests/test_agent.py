@@ -92,6 +92,7 @@ def test_search_then_answer():
 
     assert result.answer.startswith("Run vinegar")
     assert result.model == "main-model"
+    assert result.model_calls == 2
     assert [(s.tool, s.arguments) for s in result.steps] == [("search_manual", {"query": "descale"})]
     assert retriever.calls == [("descale", 5, "mr_coffee_nl4.pdf")]  # default manual used
     assert [h.page for h in result.hits] == [5, 6]
@@ -140,6 +141,7 @@ def test_stops_after_max_steps_and_forces_an_answer():
     result = a.run("Something hard")
     assert len(result.steps) == 2
     assert result.answer == "Best answer from what I found."
+    assert result.model_calls == 3
     assert "tools" not in client.requests[-1]  # the last call offers no tools
 
 
