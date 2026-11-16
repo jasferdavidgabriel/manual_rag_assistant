@@ -112,3 +112,80 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     assert result["summary"]["questions"] == 2
     assert result["settings"]["model"] == "m1" and result["settings"]["manual_hint"] is False
     assert (tmp_path / "results_dir" / "agent_eval.json").exists()
+
+
+# ---------- questions with several manuals ----------
+
+COMPARISON = {"id": 101, "type": "comparison", "match": "all", "question": "compare?",
+              "expected": [{"manual": "c.pdf", "pages": [9]}, {"manual": "m.pdf", "pages": [21]}]}
+AMBIGUOUS = {"id": 108, "type": "ambiguous", "match": "any", "question": "how long?",
+             "expected": [{"manual": "c.pdf", "pages": [9]}, {"manual": "m.pdf", "pages": [21]}]}
+
+
+def test_targets_reads_both_formats():
+    assert agent_eval.targets(RECORDS[0]) == ([("c.pdf", {9})], "all")
+    goals, rule = agent_eval.targets(AMBIGUOUS)
+    assert goals == [("c.pdf", {9}), ("m.pdf", {21})] and rule == "any"
+
+
+def test_score_hits_all_and_any():
+    one_manual = [hit(9)]
+    both = [hit(9), hit(21, "m.pdf")]
+    assert agent_eval.score_hits(one_manual, COMPARISON) == (False, False)
+    assert agent_eval.score_hits(both, COMPARISON) == (True, True)
+    assert agent_eval.score_hits(one_manual, AMBIGUOUS) == (True, False)
+    assert agent_eval.score_hits([hit(21)], AMBIGUOUS) == (False, False)  # page 21 of the wrong manual
+
+
+def test_score_citations_all_and_any():
+    assert agent_eval.score_citations("See page 9 and page 21.", COMPARISON)
+    assert not agent_eval.score_citations("See page 9.", COMPARISON)
+    assert agent_eval.score_citations("See page 9.", AMBIGUOUS)
+
+
+class TwoManualRetriever:
+    def retrieve(self, query, top_k=5, manual=None):
+        return [hit(9)]  # a single search only finds the coffee maker page
+
+
+class ComparingAgent:
+    top_k = 5
+    max_steps = 6
+
+    def run(self, question):
+        return AgentResult("Both one year (c.pdf, page 9; m.pdf, page 21).", "m1",
+                           [Step("search_manual", {"query": "w", "manual": "c.pdf"}, ""),
+                            Step("search_manual", {"query": "w", "manual": "m.pdf"}, "")],
+                           [hit(9), hit(21, "m.pdf")], 3)
+
+
+def test_comparison_and_ambiguous_scored_per_type():
+    result = agent_eval.evaluate_agent(ComparingAgent(), TwoManualRetriever(), [COMPARISON, AMBIGUOUS],
+                                       clock=clock_from([0, 1, 0, 1]))
+    rows = result["per_question"]
+    assert [r["found"] for r in rows] == [True, True]
+    assert [r["baseline_found"] for r in rows] == [False, True]   # one search misses the 2nd manual
+    assert [r["covered_all"] for r in rows] == [True, True]
+    assert rows[0]["cited"] and rows[0]["type"] == "comparison"
+    assert result["by_type"]["comparison"] == {"questions": 1, "found_rate": 1.0,
+                                               "baseline_found_rate": 0.0, "covered_all_rate": 1.0,
+                                               "baseline_covered_all_rate": 0.0}
+    assert result["summary"]["baseline_covered_all_rate"] == 0.0
+
+
+def test_run_with_a_questions_file(monkeypatch, tmp_path):
+    import json
+    from manual_rag import pipeline
+
+    path = tmp_path / "hard.jsonl"
+    other = {**AMBIGUOUS, "id": 109, "expected": [{"manual": "x.pdf", "pages": [1]}]}
+    path.write_text("\n".join(json.dumps(r) for r in [COMPARISON, other]) + "\n", encoding="utf-8")
+    retriever = TwoManualRetriever()
+    retriever.collection = object()
+    monkeypatch.setattr(pipeline, "build_retriever", lambda cfg: retriever)
+    monkeypatch.setattr(pipeline, "list_sources", lambda c: ["c.pdf", "m.pdf"])
+    cfg = SimpleNamespace(path=lambda name: tmp_path / name, section=lambda name: {})
+
+    result = agent_eval.run(cfg, questions_path=path, agent_factory=lambda cfg, retriever: ComparingAgent())
+    assert result["summary"]["questions"] == 1          # x.pdf isn't indexed, so 109 is skipped
+    assert result["settings"]["questions_file"] == str(path)

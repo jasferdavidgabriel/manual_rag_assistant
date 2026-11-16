@@ -124,6 +124,7 @@ def main() -> None:
 
     p_ae = sub.add_parser("agent-eval", help="Score the agent on the labelled questions.")
     p_ae.add_argument("--limit", type=int, help="Only the first N questions (for a quick check).")
+    p_ae.add_argument("--questions", help="Question file (.jsonl). Default: the eval set in the config.")
     p_ae.add_argument("--run-name", help="Name for this MLflow run.")
     p_ae.add_argument("--note", help="Free text note saved with the MLflow run.")
     p_ae.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
@@ -194,7 +195,7 @@ def run(cfg, args) -> None:
     elif args.command == "agent-eval":
         from manual_rag import agent_eval
 
-        result = agent_eval.run(cfg, limit=args.limit)
+        result = agent_eval.run(cfg, limit=args.limit, questions_path=args.questions)
         if not args.no_track:
             try:
                 run_id = agent_eval.log_to_mlflow(
@@ -215,12 +216,20 @@ def run(cfg, args) -> None:
         print(f"  model calls per question    {s['avg_model_calls']}")
         print(f"  seconds per question        {s['avg_seconds']}")
         print(f"  errors                      {s['errors']}")
+        types = result.get("by_type") or {}
+        if set(types) != {"single"}:
+            print("\n  found the right page, by question type   agent   one search   (questions)")
+            for qtype, t in types.items():
+                print(f"    {qtype:<38}{t['found_rate']:>6}  {t['baseline_found_rate']:>10}   ({t['questions']})")
+            print(f"  every manual a question names was found   {s['covered_all_rate']:>6}  "
+                  f"{s['baseline_covered_all_rate']:>10}")
         missed = [r for r in result["per_question"] if not r["found"]]
         if missed:
             print("\nNot found by the agent:")
             for r in missed:
                 note = f"  [error: {r['error']}]" if r["error"] else ""
-                print(f"  - {r['question']}  (expected {r['manual']} page {r['expected_pages']}){note}")
+                where = "; ".join(f"{e['manual']} page {e['pages']}" for e in r["expected"])
+                print(f"  - {r['question']}  (expected {where}){note}")
         print(f"\nSaved {result['saved_to']}")
     elif args.command == "agent":
         from manual_rag.agent import Agent

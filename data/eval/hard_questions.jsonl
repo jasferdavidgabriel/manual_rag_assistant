@@ -1,0 +1,9 @@
+{"id": 101, "type": "comparison", "match": "all", "topic": "warranty", "question": "Which has the longer warranty, the microwave or the coffee maker?", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [21]}, {"manual": "mr_coffee_nl4.pdf", "pages": [9]}]}
+{"id": 102, "type": "comparison", "match": "all", "topic": "cleaning", "question": "How do I clean the microwave and the coffee maker?", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [16, 17]}, {"manual": "mr_coffee_nl4.pdf", "pages": [7, 8]}]}
+{"id": 103, "type": "vague", "match": "all", "topic": "cleaning", "question": "My coffee maker is brewing really slowly, what should I do?", "expected": [{"manual": "mr_coffee_nl4.pdf", "pages": [7, 8]}]}
+{"id": 104, "type": "vague", "match": "all", "topic": "controls", "question": "My kids keep pressing the microwave buttons. Can I stop them?", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [13]}]}
+{"id": 105, "type": "vague", "match": "all", "topic": "controls", "question": "The time shown on my microwave is wrong.", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [13]}]}
+{"id": 106, "type": "vague", "match": "all", "topic": "parts", "question": "I broke the glass pot of my coffee maker. Where can I get another one?", "expected": [{"manual": "mr_coffee_nl4.pdf", "pages": [5]}]}
+{"id": 107, "type": "vague", "match": "all", "topic": "cleaning", "question": "My coffee tastes like vinegar.", "expected": [{"manual": "mr_coffee_nl4.pdf", "pages": [8]}]}
+{"id": 108, "type": "ambiguous", "match": "any", "topic": "warranty", "question": "How long is the warranty?", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [21]}, {"manual": "mr_coffee_nl4.pdf", "pages": [9]}]}
+{"id": 109, "type": "ambiguous", "match": "any", "topic": "cleaning", "question": "How do I clean it?", "expected": [{"manual": "ge_microwave_jvm3160.pdf", "pages": [16, 17]}, {"manual": "mr_coffee_nl4.pdf", "pages": [7, 8]}]}
