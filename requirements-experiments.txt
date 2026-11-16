@@ -1,3 +1,4 @@
 # For tracking evaluation runs with MLflow (not needed by the app or the tests).
 -r requirements.txt
 mlflow>=2.14
+scikit-learn>=1.3

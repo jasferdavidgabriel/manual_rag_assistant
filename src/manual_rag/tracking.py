@@ -95,3 +95,42 @@ def log_evaluation(cfg, result: dict, run_name: str | None = None,
             if path.exists():
                 mlflow.log_artifact(str(path))
         return run.info.run_id
+
+
+RERANK_METHODS = ("baseline", "reranked", "cross_encoder")
+
+
+def rerank_metrics(result: dict) -> dict[str, float]:
+    """Scores per ranking method, plus the learned reranker's feature weights."""
+    metrics: dict[str, float] = {}
+    for method in RERANK_METHODS:
+        for key, value in (result.get(method) or {}).items():
+            if key != "n" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                metrics[metric_name(method, key)] = float(value)
+    for name, weight in (result.get("weights") or {}).items():
+        metrics[f"weight.{name}"] = float(weight)
+    return metrics
+
+
+def log_rerank(cfg, result: dict, run_name: str | None = None,
+               tags: dict[str, str] | None = None) -> str:
+    """Log one reranker comparison to MLflow and return its run id."""
+    try:
+        import mlflow
+    except ImportError as exc:
+        raise RuntimeError("MLflow isn't installed. Run: pip install mlflow") from exc
+
+    tracking = cfg.section("tracking") or {}
+    mlflow.set_tracking_uri(tracking.get("tracking_uri", "sqlite:///mlflow.db"))
+    mlflow.set_experiment(tracking.get("experiment_name", "manual-rag-retrieval"))
+
+    with mlflow.start_run(run_name=run_name) as run:
+        mlflow.log_params(run_params(cfg))
+        mlflow.log_params({f"rerank.{k}": v for k, v in (result.get("settings") or {}).items()})
+        mlflow.log_params({"eval.questions": result.get("questions", 0)})
+        mlflow.log_metrics(rerank_metrics(result))
+        mlflow.set_tags({"stage": "rerank-cv", **(tags or {})})
+        path = cfg.path("results_dir") / "rerank_cv.json"
+        if path.exists():
+            mlflow.log_artifact(str(path))
+        return run.info.run_id

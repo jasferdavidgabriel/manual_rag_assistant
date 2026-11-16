@@ -136,3 +136,37 @@ def test_log_evaluation_explains_missing_mlflow(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "mlflow", None)  # makes "import mlflow" fail
     with pytest.raises(RuntimeError, match="pip install mlflow"):
         tracking.log_evaluation(FakeCfg(tmp_path), RESULT)
+
+
+RERANK_RESULT = {
+    "questions": 34,
+    "baseline": {"hit@1": 0.94, "hit@3": 0.97, "mrr": 0.96, "n": 34},
+    "reranked": {"hit@1": 0.97, "hit@3": 1.0, "mrr": 0.98, "n": 34},
+    "cross_encoder": {"hit@1": 0.91, "hit@3": 1.0, "mrr": 0.95, "n": 34},
+    "weights": {"similarity": 1.2, "title_overlap": 0.8},
+    "settings": {"k": 10, "folds": 5, "mode": "within_manual"},
+}
+
+
+def test_rerank_metrics():
+    metrics = tracking.rerank_metrics(RERANK_RESULT)
+    assert metrics["baseline.hit_at_1"] == 0.94
+    assert metrics["reranked.mrr"] == 0.98
+    assert metrics["cross_encoder.hit_at_3"] == 1.0
+    assert metrics["weight.title_overlap"] == 0.8
+    assert not any(k.endswith(".n") for k in metrics)
+
+
+def test_log_rerank(monkeypatch, tmp_path):
+    (tmp_path / "results_dir").mkdir()
+    (tmp_path / "results_dir" / "rerank_cv.json").write_text("{}")
+    fake = FakeMlflow()
+    monkeypatch.setitem(sys.modules, "mlflow", fake)
+
+    run_id = tracking.log_rerank(FakeCfg(tmp_path), RERANK_RESULT, run_name="rerank within")
+    assert run_id == "run123"
+    assert fake.calls["params"]["rerank.mode"] == "within_manual"
+    assert fake.calls["params"]["eval.questions"] == 34
+    assert fake.calls["metrics"]["reranked.hit_at_1"] == 0.97
+    assert fake.calls["tags"]["stage"] == "rerank-cv"
+    assert fake.calls["artifacts"] == ["rerank_cv.json"]

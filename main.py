@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from manual_rag import pipeline, tracking  # noqa: E402
+from manual_rag import pipeline, rerank, tracking  # noqa: E402
 from manual_rag.config import load_config  # noqa: E402
 from manual_rag.generation import Answer  # noqa: E402
 from manual_rag.retrieval import Hit  # noqa: E402
@@ -107,6 +107,15 @@ def main() -> None:
     p_eval.add_argument("--note", help="Free text note saved with the MLflow run.")
     p_eval.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
 
+    p_rr = sub.add_parser("rerank", help="Cross validate a learned reranker against similarity ranking.")
+    p_rr.add_argument("--k", type=int, default=10, help="Chunks per question to rerank (default 10).")
+    p_rr.add_argument("--folds", type=int, default=5, help="Number of GroupKFold folds (default 5).")
+    p_rr.add_argument("--across", action="store_true", help="Search all manuals, not each question's own.")
+    p_rr.add_argument("--no-cross-encoder", action="store_true", help="Skip the cross encoder comparison.")
+    p_rr.add_argument("--run-name", help="Name for this MLflow run.")
+    p_rr.add_argument("--note", help="Free text note saved with the MLflow run.")
+    p_rr.add_argument("--no-track", action="store_true", help="Don't log this run to MLflow.")
+
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -170,6 +179,35 @@ def run(cfg, args) -> None:
                 break
             answer = pipeline.ask(cfg, question, manual=manual, retriever=retriever)
             print_answer(answer, display_k, args.show_reasoning)
+    elif args.command == "rerank":
+        result = rerank.run(cfg, k=args.k, n_splits=args.folds, across=args.across,
+                            cross_encoder=not args.no_cross_encoder)
+        if not args.no_track:
+            try:
+                run_id = tracking.log_rerank(
+                    cfg, result, run_name=args.run_name,
+                    tags={"note": args.note} if args.note else None)
+                print(f"📈 Logged to MLflow (run {run_id[:8]}).\n")
+            except RuntimeError as exc:
+                print(f"⚠️  Not tracked in MLflow: {exc}\n")
+        s = result["settings"]
+        print(f"Reranking the top {s['k']} chunks for {result['questions']} questions "
+              f"({s['mode']}), {result['n_splits']}-fold GroupKFold\n")
+        print(f"{'method':<26}{'hit@1':>8}{'hit@3':>8}{'mrr':>8}")
+        for key, label in (("baseline", "similarity (current)"),
+                           ("reranked", "learned reranker (CV)"),
+                           ("cross_encoder", "cross encoder")):
+            if key in result:
+                m = result[key]
+                print(f"{label:<26}{m['hit@1']:>8}{m['hit@3']:>8}{m['mrr']:>8}")
+        print("\nHit@1 per fold (similarity -> learned reranker):")
+        for f in result["folds"]:
+            print(f"  fold {f['fold']} ({f['questions']} questions): "
+                  f"{f['baseline']['hit@1']} -> {f['reranked']['hit@1']}")
+        print("\nLearned reranker weights (features are scaled; bigger means stronger):")
+        for name, w in sorted(result["weights"].items(), key=lambda kv: -abs(kv[1])):
+            print(f"  {name:<14}{w:+.3f}")
+        print(f"\nSaved {result['saved_to']}")
     elif args.command == "evaluate":
         result = pipeline.evaluate(cfg)
         if not args.no_track:
