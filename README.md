@@ -5,7 +5,7 @@
 **Upload an instruction manual, ask a question in plain English, and get the answer with the exact page, section and lines it came from. No need to read the whole manual.**
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-114%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -115,6 +115,9 @@ Every change was measured against the same evaluation set. Not everything worked
 | 10 | With reasoning off, a two-manual answer cited a coffee maker fact under the microwave | Code now groups chunks by manual before the LLM sees them. Regression test with the real case |
 | 11 | With reasoning off, the product title for a scanned cover was guessed ("12-Cup Programmable" for a 4-cup model) | Reasoning kept on for the one-time title step only, and the prompt forbids guessing model numbers |
 | 12 | Chunk size matters: try 15 and 45 lines per chunk instead of 30 (`max_lines_per_chunk`, tracked in MLflow) | **No effect.** Identical scores at 15, 30 and 45. The chunker cuts at section headings first and almost every section is under 30 lines, so 45 produced exactly the same 99 chunks and 15 added only 7. The line limit is a safety cap; the manual's own structure decides the chunks |
+| 13 | A learned reranker (logistic regression on similarity, rank and word overlap features, 5 fold GroupKFold so no question appears in both training and testing) beats similarity ranking | **No.** Hit@1 0.94 to 0.91 in both modes (one question). Similarity is near the ceiling on this eval set |
+| 14 | A pretrained cross encoder beats similarity ranking | **Not as is.** Across manuals it dropped to 0.82 Hit@1: reading only the chunk, it couldn't tell products apart |
+| 15 | The cross encoder fails because it can't see the product name (the same problem contextual headers fixed) | **Confirmed.** Prefixing each chunk with its product name: Hit@1 0.82 to 0.94 across, Hit@3 1.0, MRR 0.97 (best of all methods, by one question). Kept as the leading option for a larger library |
 
 ## Experiment tracking with MLflow
 
@@ -138,6 +141,37 @@ Comparing the baseline with contextual headers turned off: across all the logged
 | chunks 45 lines | `max_lines_per_chunk: 45` | 0.94 / 0.94 | 1.00 | 0.96 / 0.96 |
 
 The `--no-track` flag skips logging for a quick check, and evaluation still works without MLflow installed (it just prints a warning), so the app, Docker image and CI don't depend on it.
+
+
+## Reranking experiment (cross validation)
+
+Retrieval ranks chunks by embedding similarity alone. Could a second step reorder the top 10 better? Two rerankers were compared with plain similarity on the 34 labelled questions:
+
+1. **A learned reranker**: logistic regression (scikit-learn) on 7 features per retrieved chunk: similarity, rank, gap to the top score, share of question words in the section title and in the text, title length and text length. Labels come from the eval set (is this chunk on a correct page?).
+2. **A pretrained cross encoder** (`cross-encoder/ms-marco-MiniLM-L6-v2`), which reads the question and chunk together. It needs no training.
+
+**Why GroupKFold.** Each question contributes 10 closely related rows. A random split would put some of a question's chunks in training and the rest in testing, so the model would be scored on questions it had partly seen. GroupKFold (5 folds) keeps every question inside one fold, so each score comes from questions the model never saw.
+
+```bash
+python main.py rerank                       # within each question's manual
+python main.py rerank --across              # search all manuals (right manual AND page)
+python main.py rerank --across --ce-no-title  # cross encoder without the product name
+```
+
+| Method | Hit@1 within | Hit@1 across | Hit@3 across | MRR within / across |
+|---|---|---|---|---|
+| Similarity (current) | **0.94** | **0.94** | 0.97 | 0.96 / 0.96 |
+| Learned reranker (5 fold GroupKFold) | 0.91 | 0.91 | 0.97 | 0.95 / 0.94 |
+| Cross encoder, chunk text only | 0.91 | 0.82 | 0.97 | 0.94 / 0.90 |
+| Cross encoder with product name | **0.94** | **0.94** | **1.00** | **0.97** / **0.97** |
+
+What the runs showed:
+
+- **The learned reranker didn't beat similarity.** It lost one question in both modes. Its weights were stable across both runs: the strongest signal is closeness to the top similarity score, followed by word overlap with the text and the section title. Similarity, rank and gap to the top measure nearly the same thing, so their individual weights shouldn't be over read.
+- **The cross encoder failed across manuals until it could see the product name.** Reading only the chunk, it couldn't tell a microwave warranty from a coffee maker warranty and lost 4 questions. Prefixing each chunk with its product name recovered all of them. This is the same fix as contextual headers in the embedding search, confirmed independently in a different model. Surprisingly, it also helped within a single manual (0.91 to 0.94), where every chunk carries the same name; a likely reason is that the name gives the model context for short chunks, though one question is too few to be sure.
+- **With the product name, the cross encoder ties similarity on Hit@1 and edges ahead on Hit@3 and MRR**, by one question. On 34 questions that's promising but not conclusive, and it adds latency to every question, so the app keeps similarity ranking for now. The cross encoder is the leading candidate once the library grows (Mode 2), where many chunks will look alike.
+
+All runs are tracked in MLflow; per fold results and the learned weights are saved to `reports/rerank_cv.json`.
 
 ## Why RAG instead of pasting the whole manual into an LLM?
 
@@ -210,7 +244,7 @@ docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/ap
 docker run --rm --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" manual-rag python main.py ask "How do I lock the controls?"
 ```
 
-Every push runs the 101 unit tests on GitHub Actions, then builds this image and checks that it starts.
+Every push runs the 114 unit tests on GitHub Actions, then builds this image and checks that it starts.
 
 ## Use the REST API
 
@@ -285,15 +319,16 @@ manual_rag_assistant/
 │   ├── pipeline.py           # ingest / ask / evaluate / ad hoc file handling
 │   ├── api.py                # REST API (FastAPI)
 │   ├── tracking.py           # MLflow experiment tracking
+│   ├── rerank.py             # learned reranker + cross encoder comparison
 │   └── ui.py                 # upload checks (page limit, mostly-images) and formatting
-├── tests/                    # 101 unit tests, no GPU, model or API key needed
+├── tests/                    # 114 unit tests, no GPU, model or API key needed
 ├── data/eval/questions.jsonl # 34 labelled evaluation questions
 └── reports/figures/          # evaluation charts
 ```
 
 ## Tech stack
 
-Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · FastAPI · MLflow · pytest · GitHub Actions · Docker
+Python · pymupdf4llm / PyMuPDF · Tesseract OCR · python-docx · langdetect · Sentence Transformers (all-MiniLM-L6-v2) · ChromaDB · NVIDIA NIM (Nemotron 3.5 Lightning, OpenAI compatible API) · Gradio · FastAPI · MLflow · scikit-learn · pytest · GitHub Actions · Docker
 
 ## Known limitations
 
